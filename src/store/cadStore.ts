@@ -10,6 +10,10 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface CadParams {
+  [name: string]: number;
+}
+
 interface CadStore {
   shapes: Record<string, ShapeData>;
   messages: ChatMessage[];
@@ -18,6 +22,8 @@ interface CadStore {
   glbUrl: string | null;
   stepUrl: string | null;
   stlUrl: string | null;
+  lastCode: string | null;
+  lastParams: CadParams;
 
   addMessage: (msg: ChatMessage) => void;
   setProcessing: (v: boolean) => void;
@@ -27,6 +33,8 @@ interface CadStore {
   setGlbUrl: (url: string | null) => void;
   setStepUrl: (url: string | null) => void;
   setStlUrl: (url: string | null) => void;
+  setLastCode: (code: string | null, params: CadParams) => void;
+  updateParam: (name: string, value: number) => void;
   clearScene: () => void;
 }
 
@@ -38,6 +46,8 @@ export const useCadStore = create<CadStore>((set) => ({
   glbUrl: null,
   stepUrl: null,
   stlUrl: null,
+  lastCode: null,
+  lastParams: {},
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -59,5 +69,12 @@ export const useCadStore = create<CadStore>((set) => ({
   setStepUrl: (url) => set({ stepUrl: url }),
   setStlUrl: (url) => set({ stlUrl: url }),
 
-  clearScene: () => set({ shapes: {}, messages: [], glbUrl: null, stepUrl: null, stlUrl: null }),
+  setLastCode: (code, params) => set({ lastCode: code, lastParams: params }),
+
+  updateParam: (name, value) =>
+    set((s) => ({
+      lastParams: { ...s.lastParams, [name]: value },
+    })),
+
+  clearScene: () => set({ shapes: {}, messages: [], glbUrl: null, stepUrl: null, stlUrl: null, lastCode: null, lastParams: {} }),
 }));

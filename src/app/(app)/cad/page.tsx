@@ -7,6 +7,7 @@ import ChatPanel from "@/chat/ChatPanel";
 import ProjectSidebar from "@/components/ProjectSidebar";
 import ModelSelector from "@/components/ModelSelector";
 import ExportPanel from "@/export/ExportButton";
+import ParamPanel from "@/components/ParamPanel";
 import { useCadStore } from "@/store/cadStore";
 import Link from "next/link";
 import Image from "next/image";
@@ -105,6 +106,9 @@ export default function CadPage() {
         </motion.div>
 
         <CadExplorer />
+        <div className="mt-3 px-1">
+          <ParamPanel />
+        </div>
       </div>
     </div>
   );

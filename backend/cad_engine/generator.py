@@ -1,74 +1,131 @@
 """
-CAD Generator — executes build123d Python code and produces STEP/STL/GLB files.
+CAD Generator - ejecuta build123d Python code y exporta STEP/STL/GLB.
+
+Usa el exportador STEP XCAF de text-to-cad para preservar colores, labels
+y estructura de assembly. GLB via trimesh con normales calculadas.
 """
 
 import sys
 import uuid
 from pathlib import Path
 
-from cad_engine.step_export import export_step
-from cad_engine.stl_export import export_stl
-from cad_engine.glb_export import export_glb
+import numpy as np
+
+_TEXT_TO_CAD_SCRIPTS = (
+    Path(__file__).resolve().parents[3] / "text-to-cad" / "skills" / "cad" / "scripts"
+)
+if str(_TEXT_TO_CAD_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_TEXT_TO_CAD_SCRIPTS))
 
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
+_LINEAR_DEFLECTION = 0.05
+_ANGULAR_DEFLECTION = 0.5
 
-def _fuse_shape(shape):
-    from build123d import Compound, Solid
-    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
-    from OCP.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
+
+def _to_ocp_shape(shape):
+    if hasattr(shape, "wrapped"):
+        return shape.wrapped
+    return shape
+
+
+def _extract_trimesh(shape) -> "trimesh.Trimesh | None":
+    """Extrae una malla de alta calidad desde un shape OCP usando BRepMesh."""
+    import trimesh
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.BRep import BRep_Tool
     from OCP.TopExp import TopExp_Explorer
-    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopAbs import TopAbs_FACE
     from OCP.TopoDS import TopoDS
 
-    if isinstance(shape, Solid):
-        solid_shapes = list(shape.solids())
-        if len(solid_shapes) <= 1:
-            return shape
-        ocp_solids = []
-        for s in solid_shapes:
-            exp = TopExp_Explorer(s.wrapped, TopAbs_SOLID)
-            if exp.More():
-                ocp_solids.append(TopoDS.Solid_s(exp.Current()))
-        if len(ocp_solids) < 2:
-            return shape
-    elif isinstance(shape, Compound):
-        solids = list(shape.solids())
-        if len(solids) <= 1:
-            return solids[0] if len(solids) == 1 else shape
-        ocp_solids = []
-        for s in solids:
-            exp = TopExp_Explorer(s.wrapped, TopAbs_SOLID)
-            if exp.More():
-                ocp_solids.append(TopoDS.Solid_s(exp.Current()))
-        if len(ocp_solids) < 2:
-            return shape
-    else:
-        return shape
+    ocp_shape = _to_ocp_shape(shape)
 
-    fused = ocp_solids[0]
-    for s in ocp_solids[1:]:
-        algo = BRepAlgoAPI_Fuse(fused, s)
-        algo.Build()
-        if algo.IsDone():
-            fused = algo.Shape()
+    mesh_algo = BRepMesh_IncrementalMesh(ocp_shape, _LINEAR_DEFLECTION, False, _ANGULAR_DEFLECTION, True)
+    mesh_algo.Perform()
 
-    try:
-        unify = ShapeUpgrade_UnifySameDomain(fused, True, True, True)
-        unify.Build()
-        unified = unify.Shape()
-        if not unified.IsNull():
-            fused = unified
-    except Exception:
-        pass
+    all_vertices = []
+    all_faces = []
+    vertex_offset = 0
 
-    result = Solid(fused)
-    if hasattr(shape, "label"):
+    explorer = TopExp_Explorer(ocp_shape, TopAbs_FACE)
+    while explorer.More():
+        face = TopoDS.Face_s(explorer.Current())
+        loc = face.Location()
+
         try:
-            result.label = shape.label
+            triangulation = BRep_Tool.Triangulation_s(face, loc)
+            if triangulation is None or triangulation.NbNodes() == 0:
+                explorer.Next()
+                continue
         except Exception:
-            pass
-    return result
+            explorer.Next()
+            continue
+
+        trsf = loc.Transformation()
+        nb_nodes = triangulation.NbNodes()
+        face_vertices = []
+        for i in range(1, nb_nodes + 1):
+            node = triangulation.Node(i)
+            p = node.Transformed(trsf)
+            face_vertices.append([p.X(), p.Y(), p.Z()])
+        all_vertices.extend(face_vertices)
+
+        nb_triangles = triangulation.NbTriangles()
+        for i in range(1, nb_triangles + 1):
+            a, b, c = triangulation.Triangle(i).Get()
+            all_faces.append([
+                a - 1 + vertex_offset,
+                b - 1 + vertex_offset,
+                c - 1 + vertex_offset,
+            ])
+
+        vertex_offset += nb_nodes
+        explorer.Next()
+
+    if not all_vertices:
+        return None
+
+    return trimesh.Trimesh(vertices=np.array(all_vertices, dtype=np.float64), faces=np.array(all_faces, dtype=np.int32))
+
+
+def _export_step(shape, output_path: Path) -> Path:
+    """STEP via XCAF (text-to-cad pipeline). Preserva colores, labels y estructura."""
+    from common.step_export import export_build123d_step_scene
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    export_build123d_step_scene(shape, output_path)
+    return output_path
+
+
+def _export_glb(shape, output_path: Path) -> Path:
+    tri_mesh = _extract_trimesh(shape)
+    if tri_mesh is None:
+        raise RuntimeError("No se pudo extraer malla de la geometria")
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tri_mesh.export(str(output_path), file_type="glb")
+    return output_path
+
+
+def _export_stl(shape, output_path: Path) -> Path:
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.StlAPI import StlAPI_Writer
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    ocp_shape = _to_ocp_shape(shape)
+
+    mesh = BRepMesh_IncrementalMesh(ocp_shape, _LINEAR_DEFLECTION, False, _ANGULAR_DEFLECTION, True)
+    mesh.Perform()
+
+    writer = StlAPI_Writer()
+    writer.ASCIIMode = False
+    if not writer.Write(ocp_shape, str(output_path)):
+        raise RuntimeError("STL write failed")
+    return output_path
 
 
 def generate_cad(code: str, model_id: str | None = None) -> dict:
@@ -90,7 +147,7 @@ def generate_cad(code: str, model_id: str | None = None) -> dict:
         if not hasattr(module, "gen_step"):
             return {
                 "success": False,
-                "error": "El código debe definir una función gen_step() que devuelva una shape de build123d.",
+                "error": "El codigo debe definir una funcion gen_step() que devuelva una shape de build123d.",
                 "model_id": mid,
             }
 
@@ -99,25 +156,23 @@ def generate_cad(code: str, model_id: str | None = None) -> dict:
         if shape is None:
             return {
                 "success": False,
-                "error": "gen_step() devolvió None.",
+                "error": "gen_step() devolvio None.",
                 "model_id": mid,
             }
 
-        fused = _fuse_shape(shape)
-
         step_path = output_dir / f"{mid}.step"
-        export_step(fused, step_path)
+        _export_step(shape, step_path)
 
         stl_path = output_dir / f"{mid}.stl"
         try:
-            export_stl(fused, stl_path)
+            _export_stl(shape, stl_path)
         except Exception as stl_e:
             stl_path = None
             print(f"[WARN] STL export failed: {stl_e}")
 
         glb_path = output_dir / f"{mid}.glb"
         try:
-            export_glb(fused, glb_path)
+            _export_glb(shape, glb_path)
         except Exception as glb_e:
             print(f"[WARN] GLB export failed: {glb_e}")
             glb_path = None

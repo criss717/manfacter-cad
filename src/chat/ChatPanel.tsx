@@ -3,11 +3,20 @@
 import { useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCadChat } from "./useCadChat";
+import { useSettingsStore } from "@/store/settingsStore";
+
+const PROVIDERS = [
+  { id: "openai", label: "GPT-4o" },
+  { id: "deepseek", label: "DeepSeek" },
+  { id: "gemini", label: "Gemini" },
+] as const;
 
 export default function ChatPanel() {
   const { messages, sendMessage, cancel, isProcessing, streamingText } = useCadChat();
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const provider = useSettingsStore((s) => s.provider);
+  const setProvider = useSettingsStore((s) => s.setProvider);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -26,10 +35,23 @@ export default function ChatPanel() {
   return (
     <div className="flex flex-col h-full bg-snow rounded-[28px] overflow-hidden">
       <div className="px-7 py-5 border-b border-silver-mist">
-        <h2 className="text-body font-semibold text-ink tracking-tight">Chat CAD</h2>
-        <p className="text-caption text-graphite mt-0.5">
-          Describe la pieza que quieres crear
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-body font-semibold text-ink tracking-tight">Chat CAD</h2>
+            <p className="text-caption text-graphite mt-0.5">
+              Describe la pieza que quieres crear
+            </p>
+          </div>
+          <select
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as typeof provider)}
+            className="h-8 rounded-lg bg-fog border border-silver-mist text-caption text-ink px-2 focus:outline-none focus:border-azure/50 cursor-pointer"
+          >
+            {PROVIDERS.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">

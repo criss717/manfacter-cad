@@ -12,6 +12,7 @@ export function useCadChat() {
   const setGlbUrl = useCadStore((s) => s.setGlbUrl);
   const setStepUrl = useCadStore((s) => s.setStepUrl);
   const setStlUrl = useCadStore((s) => s.setStlUrl);
+  const setLastCode = useCadStore((s) => s.setLastCode);
   const provider = useSettingsStore((s) => s.provider);
   const [streamingText, setStreamingText] = useState("");
   const abortRef = useRef<AbortController | null>(null);
@@ -52,6 +53,7 @@ export function useCadChat() {
         if (data.glbUrl) setGlbUrl(data.glbUrl);
         if (data.stepUrl) setStepUrl(data.stepUrl);
         if (data.stlUrl) setStlUrl(data.stlUrl);
+        if (data.code && data.params) setLastCode(data.code, data.params);
 
         if (!data.hasCode && data.error) {
           addMessage({
