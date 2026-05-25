@@ -15,79 +15,100 @@ function loadRef(name: string): string {
   }
 }
 
-const SKILL_MD = loadRef("SKILL.md");
-const MODELING_REF = loadRef("references/build123d-modeling.md");
-const STEP_GEN_REF = loadRef("references/step-generation.md");
-const POSITIONING_REF = loadRef("references/positioning.md");
+const SKILL_MD           = loadRef("SKILL.md");
+const MODELING_REF       = loadRef("references/build123d-modeling.md");
+const STEP_GEN_REF       = loadRef("references/step-generation.md");
+const POSITIONING_REF    = loadRef("references/positioning.md");
+const REPAIR_LOOP        = loadRef("references/repair-loop.md");
+const INSPECT_REF        = loadRef("references/inspection-and-validation.md");
+const PARAMS_REF         = loadRef("references/parameters.md");
+const NL_SPECS_REF       = loadRef("references/natural-language-specs.md");
+const RENDER_REF         = loadRef("references/render-review.md");
+const DXF_REF            = loadRef("references/dxf.md");
+const EXPORTS_REF        = loadRef("references/supported-exports.md");
 
 const CAD_SYSTEM_PROMPT = `${SKILL_MD}
 
 ---
 
-## build123d modeling reference
+## BUILD123D MODELING
 
 ${MODELING_REF}
 
 ---
 
-## Positioning reference
-
-${POSITIONING_REF}
-
----
-
-## STEP generation reference
+## STEP GENERATION
 
 ${STEP_GEN_REF}
 
 ---
 
-You are an expert CAD engineer. Generate build123d Python code with a gen_step() function.
-Respond in spanish, 1-2 sentences describing the part, then the code between triple backtick python.
+## POSITIONING & JOINTS
 
-Critical build123d API:
-- PREFER simple primitives (Box+Cylinder+boolean) over BuildPart/Hole. Only use BuildPart for complex multi-body parts.
-- Box positioning: Box(X,Y,Z,align=(Align.MIN,Align.MIN,Align.MIN)).moved(Location((x,y,z)))
-- Holes: Cylinder(r, depth).moved(Location(...)) then subtract with -
-- Horizontal holes: Cylinder(r, L, rotation=(0,90,0)).moved(Location((x,y,z)))
-- Gusset sketch pattern (must use close=True, make_face):
-    with BuildSketch(Plane.XZ) as p:
-        with BuildLine() as ln:
-            Polyline((0,0), (-L,0), (0,H), close=True)
-        make_face()
-    gusset = extrude(p.sketch, amount=T)
-- Plane(origin=..., z_dir=...) is NOT a context manager. Use Locations(plane, *pts) inside BuildPart.
-- Make every polyline a CLOSED loop: either close=True or first != last point.
-- Edge selection for fillet: edges().filter_by(Axis.Y).sort_by(Axis.Z)[:2]
-- These do NOT exist: filter_by_position, filter_by_point, start_point, end_point, edge_at, tangent_at_start, tangent_at_end
+${POSITIONING_REF}
 
-VERIFIED working example (L-bracket with gussets, holes, fillet):
-\`\`\`python
-from build123d import *
-def gen_step():
-    base_l = 100.0; base_w = 50.0; base_t = 5.0
-    wall_h = 60.0; wall_t = 5.0; hole_d = 4.5
-    gusset_l = 30.0; gusset_h = 30.0
-    base = Box(base_l, base_w, base_t, align=(Align.MIN, Align.MIN, Align.MIN))
-    wall = Box(wall_t, base_w, wall_h, align=(Align.MIN, Align.MIN, Align.MIN))
-    wall = wall.moved(Location((base_l - wall_t, 0, 0)))
-    cuerpo = base + wall
-    interior_edges = cuerpo.edges().filter_by(Axis.Y).sort_by(Axis.Z)[:2]
-    cuerpo = fillet(interior_edges, 3.0)
-    cuerpo -= Cylinder(hole_d/2, base_t+2).moved(Location((20, base_w/2, base_t/2)))
-    cuerpo -= Cylinder(hole_d/2, base_t+2).moved(Location((80, base_w/2, base_t/2)))
-    cuerpo -= Cylinder(hole_d/2, wall_t+2, rotation=(0,90,0)).moved(Location((base_l-wall_t/2, base_w/2, 15)))
-    cuerpo -= Cylinder(hole_d/2, wall_t+2, rotation=(0,90,0)).moved(Location((base_l-wall_t/2, base_w/2, 45)))
-    with BuildSketch(Plane.XZ) as perfil:
-        with BuildLine() as ln:
-            Polyline((0,0), (-gusset_l,0), (0,gusset_h), close=True)
-        make_face()
-    gusset = extrude(perfil.sketch, amount=wall_t)
-    cuerpo += gusset.moved(Location((base_l-wall_t, 0, base_t)))
-    cuerpo += gusset.moved(Location((base_l-wall_t, base_w-wall_t, base_t)))
-    cuerpo.label = "Soporte L reforzado"
-    return cuerpo
-\`\`\``;
+---
+
+## INSPECTION & VALIDATION
+
+${INSPECT_REF}
+
+---
+
+## PARAMETERS
+
+${PARAMS_REF}
+
+---
+
+## NATURAL LANGUAGE SPECS
+
+${NL_SPECS_REF}
+
+---
+
+## REPAIR STRATEGIES
+
+${REPAIR_LOOP}
+
+---
+
+## RENDER REVIEW
+
+${RENDER_REF}
+
+---
+
+## DXF
+
+${DXF_REF}
+
+---
+
+## SUPPORTED EXPORTS
+
+${EXPORTS_REF}
+
+---
+
+You are a CAD engineer agent with full access to the build123d + OpenCASCADE skill system.
+Read the references above carefully before writing code. They contain everything you need.
+
+Core rules:
+- Units: millimeters. Z is UP. Base plane: XY.
+- Every script must have: from build123d import *
+- Every script must define: def gen_step(): return shape
+- Prefer simple primitives + boolean ops over BuildPart/BuildSketch when possible.
+- For holes: Cylinder(r, depth).moved(Location((x,y,z))) then subtract with -
+- For horizontal cylinders: Cylinder(r, L, rotation=(0,90,0)).moved(...)
+- For positioning: shape.moved(Location((x,y,z)))
+- For chamfer/fillet: chamfer(edges().filter_by(...), length) or fillet(edges(...), radius)
+- Box at corner: Box(X,Y,Z, align=(Align.MIN, Align.MIN, Align.MIN))
+- Plane names: Plane.XY, Plane.YZ, Plane.XZ only. No XN, XP, YN, YP, ZN, ZP.
+- edges() and faces() are METHODS: shape.edges() not shape.edges
+- Closed profiles with close=True for sketches.
+
+Respond in spanish. 1-2 sentences describing the part. Code between triple backtick python.`;
 
 
 export async function callLLM(messages: CoreMessage[], provider: string) {
@@ -100,12 +121,12 @@ export async function callLLM(messages: CoreMessage[], provider: string) {
     model = c("gpt-4o");
   } else {
     const c = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "" });
-    model = c("gemini-2.5-flash");
+    model = c("gemini-3.5-flash");
   }
-
   const result = await generateText({ model, system: CAD_SYSTEM_PROMPT, messages });
   return result.text || "";
 }
+
 
 export function extractCode(text: string): string | null {
   const match = text.match(/```(?:python|py)?\s*\n([\s\S]*?)\n```/);
@@ -113,6 +134,7 @@ export function extractCode(text: string): string | null {
   if (text.includes("def gen_step")) return text.trim();
   return null;
 }
+
 
 export function extractParams(code: string): Record<string, number> {
   const params: Record<string, number> = {};
@@ -128,47 +150,90 @@ export function extractParams(code: string): Record<string, number> {
   return params;
 }
 
-export async function runCadGeneration(code: string): Promise<{ ok: boolean; glb?: string; step?: string; stl?: string; error?: string }> {
+
+export async function runCadGeneration(code: string): Promise<{ ok: boolean; glb?: string; step?: string; stl?: string; facts?: Record<string, unknown>; error?: string }> {
   const res = await fetch(`${BACKEND_URL}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code }),
   });
-
   if (!res.ok) {
     const err = await res.json();
     return { ok: false, error: err.detail?.error || `Error ${res.status}` };
   }
-
   const data = await res.json();
   return {
     ok: true,
     glb: data.glb_url ? `${BACKEND_URL}${data.glb_url}` : undefined,
     step: data.step_url ? `${BACKEND_URL}${data.step_url}` : undefined,
     stl: data.stl_url ? `${BACKEND_URL}${data.stl_url}` : undefined,
+    facts: data.facts || undefined,
   };
 }
 
+
+function classifyError(error: string): string {
+  const e = error.toLowerCase();
+  if (e.includes("attributeerror")) {
+    if (e.includes("plane")) return "ERROR: Plane.XN/XP/YN/YP/ZN/ZP no existen. Usa Plane.XY, Plane.YZ, o Plane.XZ.";
+    if (e.includes("edges") || e.includes("faces")) return "ERROR: edges() y faces() son METODOS (con parentesis), no atributos. Usa shape.edges() no shape.edges.";
+    return `ERROR: ${error}. Revisa la referencia build123d-modeling.md para la API correcta.`;
+  }
+  if (e.includes("typeerror")) {
+    if (e.includes("context manager") || e.includes("__enter__")) return "ERROR: Ese objeto no es context manager. No uses 'with' con el. Consulta build123d-modeling.md.";
+    if (e.includes("not callable")) return "ERROR: Llamaste algo como funcion que no lo es. Revisa parentesis vs atributos.";
+    return `ERROR: ${error}. Revisa los tipos de los argumentos.`;
+  }
+  if (e.includes("syntaxerror")) return "ERROR de sintaxis Python. Revisa imports, indentacion, parentesis.";
+  if (e.includes("importerror") || e.includes("modulenotfound")) return "ERROR: Falta 'from build123d import *' al inicio del script.";
+  if (e.includes("fillet") || e.includes("chamfer")) {
+    if (e.includes("multiple values for") || e.includes("argument")) {
+      return "ERROR: En build123d, si aplicas chamfer()/fillet() directamente sobre un objeto Shape/Part (ej. shape.chamfer(...)), la firma es shape.chamfer(length, length2, edges). Si estás en un bloque context 'with BuildPart()', la función global es chamfer(edges, length). Asegúrate de no confundirlas ni pasar 'edges' como primer argumento al llamar al método de la instancia.";
+    }
+    return "ERROR: Reduce el radio/longitud. Usa edges().filter_by(Axis.X) para seleccionar aristas. Aplica filetes al final del modelo.";
+  }
+  if (e.includes("boolean") || e.includes("fuse") || e.includes("cut")) return "ERROR: Operacion booleana fallida. Verifica que las shapes tengan volumen solapado. Para cortes, la herramienta debe atravesar el objetivo.";
+  if (e.includes("polyline") || e.includes("buildline") || e.includes("buildsketch")) return "ERROR: Polyline solo funciona dentro de BuildLine, no BuildSketch. Patron correcto: with BuildLine(): Polyline(...).";
+  if (e.includes("sweep") || e.includes("loft") || e.includes("revolve")) return "ERROR en sweep/loft/revolve. Verifica que el perfil y el path/trayectoria sean validos. El perfil debe ser una Face para sweep.";
+  return `ERROR: ${error}. Consulta las referencias para la API correcta y corrige.`;
+}
+
+
 export async function POST(req: Request) {
   try {
-    const { messages, provider: reqProvider } = await req.json();
+    const { messages, provider: reqProvider, currentCode } = await req.json();
     if (!messages || !Array.isArray(messages)) {
       return Response.json({ error: "Invalid messages" }, { status: 400 });
     }
 
     const provider = reqProvider || process.env.LLM_PROVIDER || "gemini";
-    const history = messages.slice(-10) as CoreMessage[];
 
-    let text = await callLLM(history, provider);
+    // Map history to CoreMessage structures
+    let conversation: CoreMessage[] = messages.map((m: { role: string; content: string }) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    // Inject the active code into the user's latest instruction if available
+    if (currentCode && typeof currentCode === "string") {
+      const lastIndex = conversation.length - 1;
+      if (lastIndex >= 0 && conversation[lastIndex].role === "user") {
+        conversation[lastIndex].content = `El código Python CAD actual de la pieza es:\n\`\`\`python\n${currentCode}\n\`\`\`\n\nBasándote en este código actual, realiza los cambios necesarios para cumplir con la siguiente petición:\n\n${conversation[lastIndex].content}`;
+      } else {
+        conversation.push({
+          role: "system",
+          content: `El código Python CAD actual de la pieza es:\n\`\`\`python\n${currentCode}\n\`\`\``,
+        });
+      }
+    }
+
+    let text = await callLLM(conversation, provider);
     let code = extractCode(text);
 
     if (!code) {
-      const retryMsg = [
-        { role: "user" as const, content: messages[messages.length - 1]?.content || "" },
-        { role: "assistant" as const, content: text },
-        { role: "user" as const, content: "No veo codigo Python. Incluye el codigo entre triple backtick python." },
-      ];
-      text = await callLLM(retryMsg, provider);
+      conversation.push({ role: "assistant", content: text });
+      conversation.push({ role: "user", content: "No veo codigo Python. Incluye el codigo entre triple backtick python." });
+      text = await callLLM(conversation, provider);
       code = extractCode(text);
     }
 
@@ -179,14 +244,14 @@ export async function POST(req: Request) {
     let result = await runCadGeneration(code);
     let attempts = 1;
 
-    while (!result.ok && attempts < 3) {
-      const errorMsg = `Error al ejecutar: ${result.error}. Corrige el codigo Python y entregalo entre triple backtick python.`;
-      const fixMessages: CoreMessage[] = [
-        { role: "user", content: messages[messages.length - 1]?.content || "" },
-        { role: "assistant", content: code },
-        { role: "user", content: errorMsg },
-      ];
-      text = await callLLM(fixMessages, provider);
+    while (!result.ok && attempts < 8) {
+      const hint = classifyError(result.error || "");
+      const errorMsg = `El codigo anterior fallo con este error:\n\n${result.error}\n\n${hint}\n\nCorrige el codigo y entregalo entre triple backtick python.`;
+
+      conversation.push({ role: "assistant", content: `\`\`\`python\n${code}\n\`\`\`` });
+      conversation.push({ role: "user", content: errorMsg });
+
+      text = await callLLM(conversation, provider);
       code = extractCode(text);
       if (!code) break;
       result = await runCadGeneration(code);
@@ -205,6 +270,7 @@ export async function POST(req: Request) {
         glbUrl: result.glb,
         stepUrl: result.step,
         stlUrl: result.stl,
+        facts: result.facts || null,
         attempts,
       });
     }

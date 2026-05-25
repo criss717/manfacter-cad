@@ -35,7 +35,7 @@ def _extract_trimesh(shape) -> "trimesh.Trimesh | None":
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
     from OCP.BRep import BRep_Tool
     from OCP.TopExp import TopExp_Explorer
-    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_REVERSED
     from OCP.TopoDS import TopoDS
 
     ocp_shape = _to_ocp_shape(shape)
@@ -49,38 +49,46 @@ def _extract_trimesh(shape) -> "trimesh.Trimesh | None":
 
     explorer = TopExp_Explorer(ocp_shape, TopAbs_FACE)
     while explorer.More():
-        face = TopoDS.Face_s(explorer.Current())
-        loc = face.Location()
+      face = TopoDS.Face_s(explorer.Current())
+      is_reversed = face.Orientation() == TopAbs_REVERSED
+      loc = face.Location()
 
-        try:
-            triangulation = BRep_Tool.Triangulation_s(face, loc)
-            if triangulation is None or triangulation.NbNodes() == 0:
-                explorer.Next()
-                continue
-        except Exception:
-            explorer.Next()
-            continue
-
-        trsf = loc.Transformation()
-        nb_nodes = triangulation.NbNodes()
-        face_vertices = []
-        for i in range(1, nb_nodes + 1):
-            node = triangulation.Node(i)
-            p = node.Transformed(trsf)
-            face_vertices.append([p.X(), p.Y(), p.Z()])
-        all_vertices.extend(face_vertices)
-
-        nb_triangles = triangulation.NbTriangles()
-        for i in range(1, nb_triangles + 1):
-            a, b, c = triangulation.Triangle(i).Get()
-            all_faces.append([
-                a - 1 + vertex_offset,
-                b - 1 + vertex_offset,
-                c - 1 + vertex_offset,
-            ])
-
-        vertex_offset += nb_nodes
+      try:
+        triangulation = BRep_Tool.Triangulation_s(face, loc)
+        if triangulation is None or triangulation.NbNodes() == 0:
+          explorer.Next()
+          continue
+      except Exception:
         explorer.Next()
+        continue
+
+      trsf = loc.Transformation()
+      nb_nodes = triangulation.NbNodes()
+      face_vertices = []
+      for i in range(1, nb_nodes + 1):
+        node = triangulation.Node(i)
+        p = node.Transformed(trsf)
+        face_vertices.append([p.X(), p.Y(), p.Z()])
+      all_vertices.extend(face_vertices)
+
+      nb_triangles = triangulation.NbTriangles()
+      for i in range(1, nb_triangles + 1):
+        a, b, c = triangulation.Triangle(i).Get()
+        if is_reversed:
+          all_faces.append([
+            a - 1 + vertex_offset,
+            c - 1 + vertex_offset,
+            b - 1 + vertex_offset,
+          ])
+        else:
+          all_faces.append([
+            a - 1 + vertex_offset,
+            b - 1 + vertex_offset,
+            c - 1 + vertex_offset,
+          ])
+
+      vertex_offset += nb_nodes
+      explorer.Next()
 
     if not all_vertices:
         return None
@@ -177,12 +185,33 @@ def generate_cad(code: str, model_id: str | None = None) -> dict:
             print(f"[WARN] GLB export failed: {glb_e}")
             glb_path = None
 
+        png_url = None
+        # Screenshot requires offscreen rendering (pyrender/pyglet<2). 
+        # Skip for now; facts provide enough validation data.
+        # if glb_path:
+        #     try:
+        #         from cad_engine.screenshot import render_screenshot
+        #         png_path = output_dir / f"{mid}.png"
+        #         if render_screenshot(glb_path, png_path):
+        #             png_url = f"/output/{mid}/{mid}.png"
+        #     except Exception as scr_e:
+        #         print(f"[WARN] Screenshot failed: {scr_e}")
+
+        facts = None
+        try:
+            from cad_engine.inspect import inspect_step
+            facts = inspect_step(step_path)
+        except Exception as insp_e:
+            print(f"[WARN] Inspection failed: {insp_e}")
+
         return {
             "success": True,
             "model_id": mid,
             "step_url": f"/output/{mid}/{mid}.step",
             "stl_url": f"/output/{mid}/{mid}.stl" if stl_path else None,
             "glb_url": f"/output/{mid}/{mid}.glb" if glb_path else None,
+            "png_url": png_url,
+            "facts": facts,
         }
 
     except Exception as e:

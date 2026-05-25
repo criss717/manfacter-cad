@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
+import ParamPanel from "./ParamPanel";
 
 function SliderField({
   label,
@@ -58,8 +59,10 @@ function NumberInput({ label, value, onChange }: { label: string; value: number;
 export default function PropertyPanel() {
   const shapes = useCadStore((s) => s.shapes);
   const updateShape = useCadStore((s) => s.updateShape);
+  const lastParams = useCadStore((s) => s.lastParams);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  const hasParams = Object.keys(lastParams).length > 0;
   const primitiveList = Object.values(shapes).filter((s) => s.type === "primitive");
   const selected = selectedId ? shapes[selectedId] : null;
 
@@ -68,23 +71,29 @@ export default function PropertyPanel() {
       <div className="px-6 py-4 border-b border-silver-mist">
         <h2 className="text-body-sm font-semibold text-ink">Propiedades</h2>
       </div>
-      <div className="px-4 py-3 border-b border-silver-mist">
-        <select
-          value={selectedId || ""}
-          onChange={(e) => setSelectedId(e.target.value || null)}
-          className="w-full h-9 px-3 rounded-xl bg-fog text-body-sm text-ink outline-none cursor-pointer"
-        >
-          <option value="">Seleccionar pieza...</option>
-          {primitiveList.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} ({s.primitiveType})
-            </option>
-          ))}
-        </select>
-      </div>
+      {!hasParams && (
+        <div className="px-4 py-3 border-b border-silver-mist">
+          <select
+            value={selectedId || ""}
+            onChange={(e) => setSelectedId(e.target.value || null)}
+            className="w-full h-9 px-3 rounded-xl bg-fog text-body-sm text-ink outline-none cursor-pointer"
+          >
+            <option value="">Seleccionar pieza...</option>
+            {primitiveList.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.primitiveType})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        <AnimatePresence mode="wait">
-          {selected?.primitiveType === "box" && (
+        {hasParams ? (
+          <ParamPanel />
+        ) : (
+          <>
+            <AnimatePresence mode="wait">
+              {selected?.primitiveType === "box" && (
             <motion.div key="box" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
               {(["W", "D", "H"] as const).map((dim) => {
                 const key = dim.toLowerCase() as "w" | "d" | "h";
@@ -192,7 +201,9 @@ export default function PropertyPanel() {
         {primitiveList.length === 0 && (
           <p className="text-caption text-graphite text-center mt-8">Crea una pieza desde el chat</p>
         )}
-      </div>
-    </div>
+      </>
+    )}
+  </div>
+</div>
   );
 }

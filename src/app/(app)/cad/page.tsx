@@ -5,9 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import CadExplorer from "@/viewport/CadExplorer";
 import ChatPanel from "@/chat/ChatPanel";
 import ProjectSidebar from "@/components/ProjectSidebar";
-import ModelSelector from "@/components/ModelSelector";
 import ExportPanel from "@/export/ExportButton";
-import ParamPanel from "@/components/ParamPanel";
+import PropertyPanel from "@/components/PropertyPanel";
 import { useCadStore } from "@/store/cadStore";
 import Link from "next/link";
 import Image from "next/image";
@@ -16,6 +15,7 @@ export default function CadPage() {
   const glbUrl = useCadStore((s) => s.glbUrl);
   const [mounted, setMounted] = useState(false);
   const [showProjects, setShowProjects] = useState(false);
+  const [showProperties, setShowProperties] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -95,7 +95,16 @@ export default function CadPage() {
           </div>
           <div className="flex items-center gap-2">
             <ExportPanel />
-            <ModelSelector />
+            <button
+              onClick={() => setShowProperties(!showProperties)}
+              className={`rounded-full text-caption font-medium px-4 py-1.5 transition-colors duration-[0.1s] ${
+                showProperties
+                  ? "bg-azure text-snow"
+                  : "bg-snow text-ink hover:bg-silver-mist/50"
+              }`}
+            >
+              Propiedades
+            </button>
             <Link
               href="/"
               className="rounded-full bg-snow text-ink text-caption font-medium px-4 py-1.5 hover:bg-silver-mist/50 transition-colors duration-[0.1s]"
@@ -105,9 +114,22 @@ export default function CadPage() {
           </div>
         </motion.div>
 
-        <CadExplorer />
-        <div className="mt-3 px-1">
-          <ParamPanel />
+        <div className="flex flex-1 gap-0 min-h-0">
+          <CadExplorer />
+
+          <AnimatePresence>
+            {showProperties && (
+              <motion.div
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 280, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+                className="shrink-0 overflow-hidden pl-4"
+              >
+                <PropertyPanel />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </div>

@@ -37,7 +37,11 @@ export function useCadChat() {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: history, provider }),
+          body: JSON.stringify({
+            messages: history,
+            provider,
+            currentCode: useCadStore.getState().lastCode,
+          }),
           signal: controller.signal,
         });
 
