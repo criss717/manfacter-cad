@@ -208,11 +208,32 @@ export async function POST(req: Request) {
 
     const provider = reqProvider || process.env.LLM_PROVIDER || "gemini";
 
-    // Map history to CoreMessage structures
-    let conversation: CoreMessage[] = messages.map((m: { role: string; content: string }) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // Incoming message shape from the client
+    type IncomingMessage = {
+      role?: string;
+      content?: string;
+      name?: string;
+    };
+
+    // Map history to CoreMessage structures (ensure proper discriminated unions)
+    const conversation: CoreMessage[] = messages.map((m: IncomingMessage) => {
+      const role = m.role as string;
+      if (role === "tool") {
+        // Cast via unknown because `CoreToolMessage` expects a different `content` shape
+        return ({
+          role: "tool",
+          name: m.name || "tool",
+          content: m.content,
+        } as unknown) as CoreMessage;
+      }
+
+      // Fallback to known chat roles
+      const chatRole = role === "system" || role === "user" || role === "assistant" ? role : "user";
+      return {
+        role: chatRole,
+        content: m.content,
+      } as CoreMessage;
+    });
 
     // Inject the active code into the user's latest instruction if available
     if (currentCode && typeof currentCode === "string") {

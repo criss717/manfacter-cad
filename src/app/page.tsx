@@ -19,7 +19,7 @@ export default function HomePage() {
         </div>
         <Link
           href="/cad"
-          className="rounded-full bg-azure text-snow text-caption font-medium px-4 py-1.5 hover:bg-cobalt-link transition-colors duration-[0.1s]"
+          className="rounded-full bg-azure text-snow text-caption font-medium px-4 py-1.5 hover:bg-cobalt-link transition-colors duration-100"
         >
           Comenzar
         </Link>
@@ -30,7 +30,7 @@ export default function HomePage() {
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: [0.25, 0.1, 0.25, 1], delay: 0.2 }}
-          className="max-w-[680px] text-center"
+          className="max-w-170 text-center"
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -71,7 +71,7 @@ export default function HomePage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.4, delay: 0.8 }}
-            className="text-body text-graphite max-w-[460px] mx-auto mb-12 leading-relaxed"
+            className="text-body text-graphite max-w-115 mx-auto mb-12 leading-relaxed"
           >
             Describe la pieza que necesitas fabricar en lenguaje natural.
             La IA la modela al instante con medidas exactas en milímetros.
@@ -85,7 +85,7 @@ export default function HomePage() {
           >
             <Link
               href="/cad"
-              className="inline-flex rounded-full bg-azure text-snow text-body px-7 py-3 hover:bg-cobalt-link transition-colors duration-[0.1s] font-medium shadow-[0_0_0_4px_rgba(0,113,227,0.12)]"
+              className="inline-flex rounded-full bg-azure text-snow text-body px-7 py-3 hover:bg-cobalt-link transition-colors duration-100 font-medium shadow-[0_0_0_4px_rgba(0,113,227,0.12)]"
             >
               Empezar ahora
             </Link>

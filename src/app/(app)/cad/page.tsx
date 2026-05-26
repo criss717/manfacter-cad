@@ -18,13 +18,14 @@ export default function CadPage() {
   const [showProperties, setShowProperties] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    const id = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(id);
   }, []);
 
   if (!mounted) {
     return (
       <div className="flex flex-1 h-screen overflow-hidden bg-fog">
-        <div className="w-[380px] shrink-0 p-4">
+        <div className="w-95 shrink-0 p-4">
           <ChatPanel />
         </div>
         <div className="flex-1 p-4 pl-0 flex flex-col min-w-0">
@@ -63,7 +64,7 @@ export default function CadPage() {
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.344, ease: [0.25, 0.1, 0.25, 1] }}
-        className="w-[380px] shrink-0 p-4"
+        className="w-95 shrink-0 p-4"
       >
         <ChatPanel />
       </motion.div>
@@ -97,7 +98,7 @@ export default function CadPage() {
             <ExportPanel />
             <button
               onClick={() => setShowProperties(!showProperties)}
-              className={`rounded-full text-caption font-medium px-4 py-1.5 transition-colors duration-[0.1s] ${
+              className={`rounded-full text-caption font-medium px-4 py-1.5 transition-colors duration-100 ${
                 showProperties
                   ? "bg-azure text-snow"
                   : "bg-snow text-ink hover:bg-silver-mist/50"
@@ -107,7 +108,7 @@ export default function CadPage() {
             </button>
             <Link
               href="/"
-              className="rounded-full bg-snow text-ink text-caption font-medium px-4 py-1.5 hover:bg-silver-mist/50 transition-colors duration-[0.1s]"
+              className="rounded-full bg-snow text-ink text-caption font-medium px-4 py-1.5 hover:bg-silver-mist/50 transition-colors duration-100"
             >
               Salir
             </Link>
