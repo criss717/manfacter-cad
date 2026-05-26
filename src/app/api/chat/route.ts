@@ -306,7 +306,7 @@ function classifyError(error: string): string {
 
 export async function POST(req: Request) {
   try {
-    const { messages, provider: reqProvider, currentCode } = await req.json();
+    const { messages, provider: reqProvider, currentCode, skipGeneration } = await req.json();
     if (!messages || !Array.isArray(messages)) {
       return Response.json({ error: "Invalid messages" }, { status: 400 });
     }
@@ -379,6 +379,11 @@ Cuando el usuario pregunte sobre materiales, tolerancias, orientacion o cualquie
 
     if (!code) {
       return Response.json({ text, hasCode: false, code: null });
+    }
+
+    if (skipGeneration) {
+      const params = code ? extractParams(code) : {};
+      return Response.json({ text, hasCode: true, code, params });
     }
 
     let result = await runCadGeneration(code);
