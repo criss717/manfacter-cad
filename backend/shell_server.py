@@ -81,11 +81,13 @@ async def handle_inspect(step_path: str) -> dict:
 
 async def shell_session(websocket):
     session_id = uuid.uuid4().hex[:10]
+    client_ip = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else "unknown"
+    print(f"[SHELL] CONNECT session={session_id} from={client_ip}")
 
     await websocket.send(json.dumps({
         "type": "ready",
         "session_id": session_id,
-        "message": "Shell session started. Commands: step, inspect, list, read, ping",
+        "message": "Shell session started. Commands: step, inspect, list, ping",
     }, default=str))
 
     async for raw in websocket:
@@ -96,6 +98,8 @@ async def shell_session(websocket):
             continue
 
         cmd = msg.get("cmd", "")
+        print(f"[SHELL] CMD session={session_id} cmd={cmd}")
+
         result = {"type": "response", "cmd": cmd, "id": msg.get("id", "")}
 
         try:
@@ -104,9 +108,11 @@ async def shell_session(websocket):
                 if not code:
                     result.update({"ok": False, "error": "Missing 'code'"})
                 else:
+                    print(f"[SHELL] STEP session={session_id} code_len={len(code)}")
                     r = await handle_generate(code)
                     result.update(r)
                     result["type"] = "step_result"
+                    print(f"[SHELL] STEP session={session_id} ok={r['ok']}")
 
             elif cmd == "inspect":
                 step_path = msg.get("path", "")
@@ -139,6 +145,8 @@ async def shell_session(websocket):
             result.update({"ok": False, "error": str(e)})
 
         await websocket.send(json.dumps(result, default=str))
+
+    print(f"[SHELL] DISCONNECT session={session_id}")
 
 
 async def main():

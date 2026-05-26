@@ -1,23 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useCadStore, type ChatMessage } from "@/store/cadStore";
 import { useSettingsStore } from "@/store/settingsStore";
 
 const SHELL_URL = "ws://127.0.0.1:8001";
 const BACKEND_URL = "http://127.0.0.1:8000";
-const MAX_RETRIES = 5;
 
 interface ShellMsg {
-  type: string;
-  ok?: boolean;
-  error?: string;
-  glb?: string;
-  step?: string;
-  stl?: string;
-  facts?: Record<string, unknown>;
-  stdout?: string;
-  traceback?: string;
+  type: string; ok?: boolean; error?: string;
+  glb?: string; step?: string; stl?: string;
+  facts?: Record<string, unknown>; stdout?: string;
 }
 
 export function useCadChat() {
@@ -33,57 +26,63 @@ export function useCadChat() {
   const [streamingText, setStreamingText] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const shellReadyRef = useRef<boolean>(false);
-  const pendingShellRef = useRef<Array<(msg: ShellMsg) => void>>([]);
 
-  const connectShell = useCallback((): Promise<boolean> => {
+  const shellExec = useCallback((code: string): Promise<ShellMsg> => {
     return new Promise((resolve) => {
+      const done = (msg: ShellMsg) => resolve(msg);
+
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        resolve(true);
+        wsRef.current.send(JSON.stringify({ cmd: "step", code }));
+        const handler = (e: MessageEvent) => {
+          const msg: ShellMsg = JSON.parse(e.data);
+          if (msg.type === "step_result") {
+            wsRef.current?.removeEventListener("message", handler);
+            done(msg);
+          }
+        };
+        wsRef.current.addEventListener("message", handler);
+        setTimeout(() => { wsRef.current?.removeEventListener("message", handler); done({ type: "error", error: "Shell timeout" }); }, 60000);
         return;
       }
+
       try {
         const ws = new WebSocket(SHELL_URL);
-        wsRef.current = ws;
         ws.onopen = () => {
-          shellReadyRef.current = true;
-          resolve(true);
-        };
-        ws.onmessage = (event) => {
-          try {
-            const msg: ShellMsg = JSON.parse(event.data);
-            if (pendingShellRef.current.length > 0) {
-              const cb = pendingShellRef.current.shift()!;
-              cb(msg);
+          wsRef.current = ws;
+          ws.send(JSON.stringify({ cmd: "step", code }));
+          const handler = (e: MessageEvent) => {
+            const msg: ShellMsg = JSON.parse(e.data);
+            if (msg.type === "step_result") {
+              ws.removeEventListener("message", handler);
+              done(msg);
             }
-          } catch {}
+          };
+          ws.addEventListener("message", handler);
+          setTimeout(() => { ws.removeEventListener("message", handler); done({ type: "error", error: "Shell timeout" }); }, 60000);
         };
-        ws.onclose = () => { shellReadyRef.current = false; wsRef.current = null; };
-        ws.onerror = () => { shellReadyRef.current = false; resolve(false); };
-        setTimeout(() => resolve(false), 3000);
+        ws.onerror = () => done({ type: "error", error: "Shell connection error" });
+        ws.onclose = () => { wsRef.current = null; };
+        setTimeout(() => { if (ws.readyState !== WebSocket.OPEN) done({ type: "error", error: "Shell connection timeout" }); }, 5000);
       } catch {
-        resolve(false);
+        done({ type: "error", error: "Shell unavailable" });
       }
     });
   }, []);
 
-  const shellSend = useCallback((cmd: string, payload: Record<string, unknown> = {}): Promise<ShellMsg> => {
-    return new Promise((resolve) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        resolve({ type: "error", error: "Shell not connected" });
-        return;
-      }
-      ws.send(JSON.stringify({ cmd, ...payload }));
-      pendingShellRef.current.push(resolve);
-      setTimeout(() => {
-        const idx = pendingShellRef.current.indexOf(resolve);
-        if (idx >= 0) { pendingShellRef.current.splice(idx, 1); resolve({ type: "error", error: "Shell timeout" }); }
-      }, 60000);
-    });
-  }, []);
+  const generate = useCallback(async (code: string) => {
+    setStreamingText("Shell: ejecutando...");
+    const r = await shellExec(code);
 
-  const httpGenerate = useCallback(async (code: string) => {
+    if (r.ok && r.glb) {
+      return {
+        ok: true,
+        glb: `${BACKEND_URL}${r.glb}`,
+        step: r.step ? `${BACKEND_URL}${r.step}` : undefined,
+        stl: r.stl ? `${BACKEND_URL}${r.stl}` : undefined,
+      };
+    }
+
+    setStreamingText("HTTP: ejecutando...");
     const res = await fetch(`${BACKEND_URL}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -91,7 +90,7 @@ export function useCadChat() {
     });
     if (!res.ok) {
       const err = await res.json();
-      return { ok: false, error: err.detail?.error || `Error ${res.status}` };
+      return { ok: false, error: err.detail?.error || `HTTP ${res.status}` };
     }
     const data = await res.json();
     return {
@@ -99,135 +98,86 @@ export function useCadChat() {
       glb: data.glb_url ? `${BACKEND_URL}${data.glb_url}` : undefined,
       step: data.step_url ? `${BACKEND_URL}${data.step_url}` : undefined,
       stl: data.stl_url ? `${BACKEND_URL}${data.stl_url}` : undefined,
-      facts: data.facts,
     };
-  }, []);
-
-  const executeCode = useCallback(async (code: string) => {
-    const shellConnected = await connectShell();
-
-    if (shellConnected) {
-      setStreamingText("Shell: ejecutando...");
-      const result = await shellSend("step", { code });
-      if (result.ok && result.glb) {
-        return {
-          ok: true,
-          glb: `${BACKEND_URL}${result.glb}`,
-          step: result.step ? `${BACKEND_URL}${result.step}` : undefined,
-          stl: result.stl ? `${BACKEND_URL}${result.stl}` : undefined,
-          facts: result.facts,
-          error: undefined,
-        };
-      }
-      return {
-        ok: false,
-        error: result.error || result.stdout || "Shell error",
-      };
-    }
-
-    setStreamingText("HTTP: ejecutando...");
-    return httpGenerate(code);
-  }, [connectShell, shellSend, httpGenerate]);
+  }, [shellExec]);
 
   const sendMessage = useCallback(
     async (content: string, _imageBase64?: string) => {
       if (isProcessing) return;
       setProcessing(true);
-      setStreamingText("");
+      setStreamingText("IA pensando...");
 
-      const userMsg: ChatMessage = {
-        id: `msg_${Date.now()}`,
-        role: "user",
-        content,
-        timestamp: Date.now(),
-      };
+      const userMsg: ChatMessage = { id: `msg_${Date.now()}`, role: "user", content, timestamp: Date.now() };
       addMessage(userMsg);
 
       const controller = new AbortController();
       abortRef.current = controller;
-      const timeoutId = setTimeout(() => controller.abort(), 90000);
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       try {
-        const history = [...messages.slice(-10), userMsg].map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
-
-        setStreamingText("IA pensando...");
+        const history = [...messages.slice(-10), userMsg].map((m) => ({ role: m.role, content: m.content }));
 
         const chatRes = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: history, provider }),
+          body: JSON.stringify({ messages: history, provider, skipGeneration: true }),
           signal: controller.signal,
         });
 
         clearTimeout(timeoutId);
 
-        if (!chatRes.ok) throw new Error(`Error ${chatRes.status}`);
-
-        const chatData = await chatRes.json();
-        setStreamingText("");
-
-        if (chatData.text) {
-          addMessage({
-            id: `msg_${Date.now()}_ai`,
-            role: "assistant",
-            content: chatData.text,
-            timestamp: Date.now(),
-          });
-        }
-
-        let code = chatData.code;
-        if (!code) {
-          addMessage({
-            id: `msg_${Date.now()}_err`,
-            role: "assistant",
-            content: "No se pudo extraer codigo Python de la respuesta.",
-            timestamp: Date.now(),
-          });
+        if (!chatRes.ok) {
+          addMessage({ id: `msg_${Date.now()}_err`, role: "assistant", content: `Error (${chatRes.status})`, timestamp: Date.now() });
+          setStreamingText("");
           return;
         }
 
-        let result = await executeCode(code);
+        const chatData = await chatRes.json();
+
+        if (chatData.text) {
+          addMessage({ id: `msg_${Date.now()}_ai`, role: "assistant", content: chatData.text, timestamp: Date.now() });
+        }
+
+        const code = chatData.code;
+        if (!code) {
+          setStreamingText("");
+          return;
+        }
+
+        setLastCode(code, chatData.params || {});
+
+        let result = await generate(code);
         let attempts = 1;
 
-        while (!result.ok && attempts < MAX_RETRIES) {
-          const errorMsg = `Error al ejecutar el codigo:\n${result.error}\n\nCorrige el codigo Python y entregalo entre triple backtick python.`;
-
+        while (!result.ok && attempts < 5) {
+          const errorMsg = `Error al ejecutar:\n${result.error}\n\nCorrige el codigo Python entre triple backtick python.`;
           setStreamingText("Corrigiendo...");
 
           const fixRes = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              messages: [
-                { role: "user", content },
-                { role: "assistant", content: code },
-                { role: "user", content: errorMsg },
-              ],
-              provider,
-              skipGeneration: true,
+              messages: [{ role: "user", content }, { role: "assistant", content: code }, { role: "user", content: errorMsg }],
+              provider, skipGeneration: true,
             }),
             signal: controller.signal,
           });
 
-          setStreamingText("");
-
           if (!fixRes.ok) break;
           const fixData = await fixRes.json();
-          code = fixData.code;
-          if (!code) break;
+          const newCode = fixData.code;
+          if (!newCode) break;
 
-          result = await executeCode(code);
+          result = await generate(newCode);
           attempts++;
         }
+
+        setStreamingText("");
 
         if (result.ok && result.glb) {
           setGlbUrl(result.glb);
           if (result.step) setStepUrl(result.step);
           if (result.stl) setStlUrl(result.stl);
-          if (code) setLastCode(code, {});
         } else if (result.error) {
           addMessage({
             id: `msg_${Date.now()}_err`,
@@ -239,30 +189,16 @@ export function useCadChat() {
       } catch (err: unknown) {
         clearTimeout(timeoutId);
         if (err instanceof Error && err.name === "AbortError") return;
-        addMessage({
-          id: `msg_${Date.now()}_err`,
-          role: "assistant",
-          content: "Error de conexion. Verifica que los servidores esten corriendo.",
-          timestamp: Date.now(),
-        });
+        addMessage({ id: `msg_${Date.now()}_err`, role: "assistant", content: "Error de conexión. Verifica los servidores.", timestamp: Date.now() });
+        setStreamingText("");
       } finally {
         setProcessing(false);
         setStreamingText("");
         abortRef.current = null;
       }
     },
-    [
-      messages, addMessage, setProcessing, isProcessing,
-      setGlbUrl, setStepUrl, setStlUrl, setLastCode,
-      provider, executeCode,
-    ]
+    [messages, addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, provider, generate]
   );
 
-  return {
-    messages,
-    sendMessage,
-    cancel: () => abortRef.current?.abort(),
-    isProcessing,
-    streamingText,
-  };
+  return { messages, sendMessage, cancel: () => abortRef.current?.abort(), isProcessing, streamingText };
 }

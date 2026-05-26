@@ -20,14 +20,10 @@ function loadRef(name: string): string {
 const SKILL_MD        = loadRef("SKILL.md");
 const MODELING_REF    = loadRef("build123d-modeling.md");
 const STEP_GEN_REF    = loadRef("step-generation.md");
-const POSITIONING_REF = loadRef("positioning.md");
 const REPAIR_LOOP     = loadRef("repair-loop.md");
 const INSPECT_REF     = loadRef("inspection-and-validation.md");
 const PARAMS_REF      = loadRef("parameters.md");
 const NL_SPECS_REF    = loadRef("natural-language-specs.md");
-const RENDER_REF      = loadRef("render-review.md");
-const DXF_REF         = loadRef("dxf.md");
-const EXPORTS_REF     = loadRef("supported-exports.md");
 
 const CAD_SYSTEM_PROMPT = `Eres un ingeniero CAD experto en build123d + OpenCASCADE. Tu objetivo: generar codigo Python 3D valido y preciso para fabricacion (impresion 3D, CNC, mecanizado).
 
@@ -128,12 +124,6 @@ ${STEP_GEN_REF}
 
 ---
 
-## POSICIONAMIENTO Y JOINTS
-
-${POSITIONING_REF}
-
----
-
 ## INSPECCION Y VALIDACION
 
 ${INSPECT_REF}
@@ -154,25 +144,7 @@ ${NL_SPECS_REF}
 
 ## ESTRATEGIAS DE REPARACION
 
-${REPAIR_LOOP}
-
----
-
-## REVISION DE RENDER
-
-${RENDER_REF}
-
----
-
-## DXF
-
-${DXF_REF}
-
----
-
-## EXPORTACIONES SOPORTADAS
-
-${EXPORTS_REF}`;
+${REPAIR_LOOP}`;
 
 
 function llmErrorMessage(error: unknown): string {
