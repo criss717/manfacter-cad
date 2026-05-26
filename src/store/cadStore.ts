@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import type { ShapeData } from "@/cad";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -8,10 +7,25 @@ export interface ChatMessage {
   role: MessageRole;
   content: string;
   timestamp: number;
+  image?: string;
 }
 
 export interface CadParams {
   [name: string]: number;
+}
+
+export interface ShapeData {
+  id: string;
+  name: string;
+  type: string;
+  primitiveType?: string;
+  dimensions?: Record<string, number>;
+  children: string[];
+  color: string;
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scaleVec: [number, number, number];
+  visible: boolean;
 }
 
 interface CadStore {
@@ -24,6 +38,8 @@ interface CadStore {
   stlUrl: string | null;
   lastCode: string | null;
   lastParams: CadParams;
+  modelColor: string;
+  sceneBackground: string;
 
   addMessage: (msg: ChatMessage) => void;
   setProcessing: (v: boolean) => void;
@@ -35,6 +51,8 @@ interface CadStore {
   setStlUrl: (url: string | null) => void;
   setLastCode: (code: string | null, params: CadParams) => void;
   updateParam: (name: string, value: number) => void;
+  setModelColor: (color: string) => void;
+  setSceneBackground: (color: string) => void;
   clearScene: () => void;
 }
 
@@ -48,6 +66,8 @@ export const useCadStore = create<CadStore>((set) => ({
   stlUrl: null,
   lastCode: null,
   lastParams: {},
+  modelColor: "#0080ff",
+  sceneBackground: "#f5f5f7",
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -76,5 +96,11 @@ export const useCadStore = create<CadStore>((set) => ({
       lastParams: { ...s.lastParams, [name]: value },
     })),
 
-  clearScene: () => set({ shapes: {}, messages: [], glbUrl: null, stepUrl: null, stlUrl: null, lastCode: null, lastParams: {} }),
+  setModelColor: (color) => set({ modelColor: color }),
+  setSceneBackground: (color) => set({ sceneBackground: color }),
+
+  clearScene: () => set({
+    shapes: {}, messages: [], glbUrl: null, stepUrl: null, stlUrl: null,
+    lastCode: null, lastParams: {}, modelColor: "#0080ff", sceneBackground: "#f5f5f7",
+  }),
 }));

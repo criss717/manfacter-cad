@@ -1,79 +1,104 @@
 import { generateText, type CoreMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { readFileSync } from "fs";
 import { join } from "path";
 
 const BACKEND_URL = "http://127.0.0.1:8000";
+const LLM_TIMEOUT_MS = 180_000;
 
 function loadRef(name: string): string {
   try {
-    const p = join(process.cwd(), "..", "text-to-cad", "skills", "cad", name);
+    const p = join(process.cwd(), "references", name);
     return readFileSync(p, "utf-8");
   } catch {
     return "";
   }
 }
 
-const SKILL_MD           = loadRef("SKILL.md");
-const MODELING_REF       = loadRef("references/build123d-modeling.md");
-const STEP_GEN_REF       = loadRef("references/step-generation.md");
-const POSITIONING_REF    = loadRef("references/positioning.md");
-const REPAIR_LOOP        = loadRef("references/repair-loop.md");
-const INSPECT_REF        = loadRef("references/inspection-and-validation.md");
-const PARAMS_REF         = loadRef("references/parameters.md");
-const NL_SPECS_REF       = loadRef("references/natural-language-specs.md");
-const RENDER_REF         = loadRef("references/render-review.md");
-const DXF_REF            = loadRef("references/dxf.md");
-const EXPORTS_REF        = loadRef("references/supported-exports.md");
+const SKILL_MD        = loadRef("SKILL.md");
+const MODELING_REF    = loadRef("build123d-modeling.md");
+const STEP_GEN_REF    = loadRef("step-generation.md");
+const POSITIONING_REF = loadRef("positioning.md");
+const REPAIR_LOOP     = loadRef("repair-loop.md");
+const INSPECT_REF     = loadRef("inspection-and-validation.md");
+const PARAMS_REF      = loadRef("parameters.md");
+const NL_SPECS_REF    = loadRef("natural-language-specs.md");
+const RENDER_REF      = loadRef("render-review.md");
+const DXF_REF         = loadRef("dxf.md");
+const EXPORTS_REF     = loadRef("supported-exports.md");
 
-const CAD_SYSTEM_PROMPT = `${SKILL_MD}
+const CAD_SYSTEM_PROMPT = `Eres un ingeniero CAD experto en build123d + OpenCASCADE. Tu objetivo: generar codigo Python 3D valido y preciso para fabricacion (impresion 3D, CNC, mecanizado).
 
 ---
 
-## BUILD123D MODELING
+## REGLAS CRITICAS (violar esto = error garantizado)
+
+1. Unidades: milimetros. Eje Z hacia ARRIBA. Plano base: XY.
+2. TODO script debe empezar con: from build123d import *
+3. TODO script debe definir: def gen_step(): return shape
+4. Plane.XY, Plane.YZ, Plane.XZ SOLO esos. NUNCA Plane.XN, XP, YN, YP, ZN, ZP.
+5. edges() y faces() son METODOS con parentesis: shape.edges() no shape.edges
+6. Usa shape.moved(Location((x, y, z))) para posicionar, NO Pos() solo.
+7. Agujeros: Cylinder(r, h).moved(Location((x,y,z))) y restar con -
+8. Cilindros horizontales: Cylinder(r, L, rotation=(0, 90, 0)).moved(Location((x,y,z)))
+9. Box alineada a esquina: Box(X, Y, Z, align=(Align.MIN, Align.MIN, Align.MIN))
+10. Prefiere primitivas + booleanos sobre BuildPart/BuildSketch cuando sea posible.
+11. Chamfer/Fillet: sobre el solido final, usa edges().filter_by(Axis.X) para seleccionar aristas.
+12. Respondes en espanol. 1-2 frases describiendo la pieza. Codigo entre triple backtick python.
+
+---
+
+## REFERENCIA COMPLETA DE BUILD123D
+
+${SKILL_MD}
+
+---
+
+## BUILD123D MODELING (API completa)
 
 ${MODELING_REF}
 
 ---
 
-## STEP GENERATION
+## GENERACION DE STEP
 
 ${STEP_GEN_REF}
 
 ---
 
-## POSITIONING & JOINTS
+## POSICIONAMIENTO Y JOINTS
 
 ${POSITIONING_REF}
 
 ---
 
-## INSPECTION & VALIDATION
+## INSPECCION Y VALIDACION
 
 ${INSPECT_REF}
 
 ---
 
-## PARAMETERS
+## PARAMETROS
 
 ${PARAMS_REF}
 
 ---
 
-## NATURAL LANGUAGE SPECS
+## ESPECIFICACIONES EN LENGUAJE NATURAL
 
 ${NL_SPECS_REF}
 
 ---
 
-## REPAIR STRATEGIES
+## ESTRATEGIAS DE REPARACION
 
 ${REPAIR_LOOP}
 
 ---
 
-## RENDER REVIEW
+## REVISION DE RENDER
 
 ${RENDER_REF}
 
@@ -85,37 +110,45 @@ ${DXF_REF}
 
 ---
 
-## SUPPORTED EXPORTS
+## EXPORTACIONES SOPORTADAS
 
-${EXPORTS_REF}
+${EXPORTS_REF}`;
 
----
 
-You are a CAD engineer agent with full access to the build123d + OpenCASCADE skill system.
-Read the references above carefully before writing code. They contain everything you need.
-
-Core rules:
-- Units: millimeters. Z is UP. Base plane: XY.
-- Every script must have: from build123d import *
-- Every script must define: def gen_step(): return shape
-- Prefer simple primitives + boolean ops over BuildPart/BuildSketch when possible.
-- For holes: Cylinder(r, depth).moved(Location((x,y,z))) then subtract with -
-- For horizontal cylinders: Cylinder(r, L, rotation=(0,90,0)).moved(...)
-- For positioning: shape.moved(Location((x,y,z)))
-- For chamfer/fillet: chamfer(edges().filter_by(...), length) or fillet(edges(...), radius)
-- Box at corner: Box(X,Y,Z, align=(Align.MIN, Align.MIN, Align.MIN))
-- Plane names: Plane.XY, Plane.YZ, Plane.XZ only. No XN, XP, YN, YP, ZN, ZP.
-- edges() and faces() are METHODS: shape.edges() not shape.edges
-- Closed profiles with close=True for sketches.
-
-Respond in spanish. 1-2 sentences describing the part. Code between triple backtick python.`;
+function llmErrorMessage(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  const lower = msg.toLowerCase();
+  if (lower.includes("other side closed") || lower.includes("socket") || lower.includes("und_err")) {
+    return "Error de conexion con el modelo de IA. El servidor remoto cerro la conexion. Verifica tu conexion a internet, la clave API, o intenta con otro proveedor.";
+  }
+  if (lower.includes("timeout") || lower.includes("abort")) {
+    return "El modelo de IA tardo demasiado en responder (timeout). Intenta de nuevo o cambia de proveedor en el selector.";
+  }
+  if (lower.includes("429") || lower.includes("rate") || lower.includes("quota")) {
+    return "Limite de cuota alcanzado con el proveedor de IA. Espera unos minutos o cambia de proveedor.";
+  }
+  if (lower.includes("401") || lower.includes("403") || lower.includes("unauthorized") || lower.includes("key")) {
+    return "Error de autenticacion con el proveedor de IA. Verifica tu clave API en las variables de entorno.";
+  }
+  if (lower.includes("400") || lower.includes("invalid") && lower.includes("model")) {
+    return "El modelo de IA especificado no es valido o no esta disponible. Prueba con otro proveedor.";
+  }
+  return `Error inesperado del modelo IA: ${msg}. Intenta de nuevo o cambia de proveedor.`;
+}
 
 
 export async function callLLM(messages: CoreMessage[], provider: string) {
-  let model;
-  if (provider === "deepseek") {
-    const c = createOpenAI({ baseURL: "https://api.opencode.go/v1", apiKey: process.env.OPENCODE_API_KEY ?? "" });
-    model = c("deepseek-v4-pro");
+  const opencodeKey = process.env.OPENCODE_API_KEY ?? "";
+  let model: ReturnType<ReturnType<typeof createOpenAICompatible>> | ReturnType<ReturnType<typeof createOpenAI>> | ReturnType<ReturnType<typeof createGoogleGenerativeAI>>;
+  if (provider === "deepseek" || provider === "glm" || provider === "kimi") {
+    const c = createOpenAICompatible({
+      name: "opencode-go",
+      baseURL: "https://opencode.ai/zen/go/v1",
+      headers: { Authorization: `Bearer ${opencodeKey}` },
+    });
+    if (provider === "deepseek") model = c("deepseek-v4-pro");
+    else if (provider === "glm") model = c("glm-5.1");
+    else model = c("kimi-k2.6");
   } else if (provider === "openai") {
     const c = createOpenAI({ apiKey: process.env.OPENAI_API_KEY ?? "" });
     model = c("gpt-4o");
@@ -123,7 +156,14 @@ export async function callLLM(messages: CoreMessage[], provider: string) {
     const c = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "" });
     model = c("gemini-3.5-flash");
   }
-  const result = await generateText({ model, system: CAD_SYSTEM_PROMPT, messages });
+  const result = await generateText({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    model: model as any,
+    system: CAD_SYSTEM_PROMPT,
+    messages,
+    maxRetries: 1,
+    abortSignal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+  });
   return result.text || "";
 }
 
@@ -156,6 +196,7 @@ export async function runCadGeneration(code: string): Promise<{ ok: boolean; glb
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code }),
+    signal: AbortSignal.timeout(120_000),
   });
   if (!res.ok) {
     const err = await res.json();
@@ -180,6 +221,7 @@ function classifyError(error: string): string {
     return `ERROR: ${error}. Revisa la referencia build123d-modeling.md para la API correcta.`;
   }
   if (e.includes("typeerror")) {
+    if (e.includes("cylinder") || e.includes("cylind")) return "ERROR: Cylinder acepta ambas formas: Cylinder(radio, altura) posicional, o Cylinder(radius=radio, height=altura) con keywords. NO existen parametros 'r' ni 'h'. Usa radius= y height= o pásalos posicionales.";
     if (e.includes("context manager") || e.includes("__enter__")) return "ERROR: Ese objeto no es context manager. No uses 'with' con el. Consulta build123d-modeling.md.";
     if (e.includes("not callable")) return "ERROR: Llamaste algo como funcion que no lo es. Revisa parentesis vs atributos.";
     return `ERROR: ${error}. Revisa los tipos de los argumentos.`;
@@ -188,11 +230,11 @@ function classifyError(error: string): string {
   if (e.includes("importerror") || e.includes("modulenotfound")) return "ERROR: Falta 'from build123d import *' al inicio del script.";
   if (e.includes("fillet") || e.includes("chamfer")) {
     if (e.includes("multiple values for") || e.includes("argument")) {
-      return "ERROR: En build123d, si aplicas chamfer()/fillet() directamente sobre un objeto Shape/Part (ej. shape.chamfer(...)), la firma es shape.chamfer(length, length2, edges). Si estás en un bloque context 'with BuildPart()', la función global es chamfer(edges, length). Asegúrate de no confundirlas ni pasar 'edges' como primer argumento al llamar al método de la instancia.";
+      return "ERROR: En build123d, la firma de fillet en solido es shape.fillet(radius, [edges]). Pasa los edges como LISTA: [edge], no como edge suelto. Si usas BuildPart/BuildLine, la funcion global fillet toma (objects, radius=value).";
     }
-    return "ERROR: Reduce el radio/longitud. Usa edges().filter_by(Axis.X) para seleccionar aristas. Aplica filetes al final del modelo.";
+    return "ERROR: Reduce el radio/longitud o usa max_fillet() para encontrar el maximo permitido. Aplica filetes ANTES de restar agujeros cuando sea posible. Selecciona aristas con edges().filter_by(Axis.X).sort_by(Axis.X)[indice].";
   }
-  if (e.includes("boolean") || e.includes("fuse") || e.includes("cut")) return "ERROR: Operacion booleana fallida. Verifica que las shapes tengan volumen solapado. Para cortes, la herramienta debe atravesar el objetivo.";
+  if (e.includes("boolean") || e.includes("fuse") || e.includes("cut")) return "ERROR: Operacion booleana fallida. Verifica que las shapes tengan volumen solapado. Para cortes, la herramienta debe atravesar el objetivo completamente.";
   if (e.includes("polyline") || e.includes("buildline") || e.includes("buildsketch")) return "ERROR: Polyline solo funciona dentro de BuildLine, no BuildSketch. Patron correcto: with BuildLine(): Polyline(...).";
   if (e.includes("sweep") || e.includes("loft") || e.includes("revolve")) return "ERROR en sweep/loft/revolve. Verifica que el perfil y el path/trayectoria sean validos. El perfil debe ser una Face para sweep.";
   return `ERROR: ${error}. Consulta las referencias para la API correcta y corrige.`;
@@ -208,53 +250,78 @@ export async function POST(req: Request) {
 
     const provider = reqProvider || process.env.LLM_PROVIDER || "gemini";
 
-    // Incoming message shape from the client
-    type IncomingMessage = {
-      role?: string;
-      content?: string;
-      name?: string;
-    };
+    type IncomingMessage = { role?: string; content?: string; name?: string; image?: string };
 
-    // Map history to CoreMessage structures (ensure proper discriminated unions)
     const conversation: CoreMessage[] = messages.map((m: IncomingMessage) => {
       const role = m.role as string;
       if (role === "tool") {
-        // Cast via unknown because `CoreToolMessage` expects a different `content` shape
-        return ({
-          role: "tool",
-          name: m.name || "tool",
-          content: m.content,
-        } as unknown) as CoreMessage;
+        return { role: "tool", name: m.name || "tool", content: m.content } as unknown as CoreMessage;
+      }
+      const chatRole = role === "system" || role === "user" || role === "assistant" ? role : "user";
+
+      if (m.image && chatRole === "user" && provider === "gemini") {
+        const parts: Array<{ type: "text"; text: string } | { type: "image"; image: string; mimeType?: string }> = [];
+        parts.push({ type: "image", image: m.image, mimeType: "image/png" });
+        if (m.content) {
+          parts.push({ type: "text", text: m.content });
+        } else {
+          parts.push({ type: "text", text: "Analiza esta imagen. Describe las dimensiones que ves y genera el codigo CAD build123d para fabricar esta pieza. Pide las medidas que no puedas determinar de la imagen." });
+        }
+        return { role: "user", content: parts } as unknown as CoreMessage;
       }
 
-      // Fallback to known chat roles
-      const chatRole = role === "system" || role === "user" || role === "assistant" ? role : "user";
-      return {
-        role: chatRole,
-        content: m.content,
-      } as CoreMessage;
+      if (m.image && chatRole === "user") {
+        const text = m.content || "Analiza esta imagen y genera el codigo CAD build123d para esta pieza.";
+        return { role: "user", content: `[Imagen adjunta - usa tu capacidad de vision para analizarla]\n\n${text}` } as CoreMessage;
+      }
+
+      return { role: chatRole, content: m.content } as CoreMessage;
     });
 
-    // Inject the active code into the user's latest instruction if available
+    const MANUFACTURING_CONTEXT = `Eres un ingeniero de manufactura e impresion 3D de Manfacter. Tu conocimiento incluye:
+
+- **Materiales FDM**: PLA (facil, rigido, no calor), PETG (resistente, funcional), ABS (tenaz, alta temp), ASA (UV, exterior), TPU (flexible), Nylon (industrial).
+- **Tolerancias impresion 3D**: press fit 0.1-0.15mm, ajuste deslizante 0.2-0.3mm, ajuste holgado 0.4-0.5mm. Agujeros salen subdimensionados: agrega 0.2-0.4mm.
+- **Diseño**: pared minima 1.2mm, voladizos <45°, relleno 15-20% prototipos, 40-60% funcional, 2-3 perimetros.
+- **Orientacion de impresion**: eje Z es el mas debil. Alinea la carga principal con el plano XY.
+- **Radio de filete interno**: minimo 1mm, ideal 2-4mm. Reduce concentracion de tension.
+- **Referencias**: https://manfacter.com/tecnologia-impresion-3d/ (materiales) y https://manfacter.com/errores-de-impresion-3d/
+
+Cuando el usuario pregunte sobre materiales, tolerancias, orientacion o cualquier aspecto de fabricacion, responde como el ingeniero experto que eres. Cuando te pidan generar una pieza, genera el codigo build123d. Responde siempre en español.`;
+
+    if (conversation.length > 0 && conversation[0].role === "user") {
+      conversation.unshift({ role: "system", content: MANUFACTURING_CONTEXT } as CoreMessage);
+    }
+
     if (currentCode && typeof currentCode === "string") {
       const lastIndex = conversation.length - 1;
       if (lastIndex >= 0 && conversation[lastIndex].role === "user") {
-        conversation[lastIndex].content = `El código Python CAD actual de la pieza es:\n\`\`\`python\n${currentCode}\n\`\`\`\n\nBasándote en este código actual, realiza los cambios necesarios para cumplir con la siguiente petición:\n\n${conversation[lastIndex].content}`;
-      } else {
-        conversation.push({
-          role: "system",
-          content: `El código Python CAD actual de la pieza es:\n\`\`\`python\n${currentCode}\n\`\`\``,
-        });
+        conversation[lastIndex].content = `El codigo Python CAD actual de la pieza es:\n\`\`\`python\n${currentCode}\n\`\`\`\n\nModificalo segun esta peticion:\n\n${conversation[lastIndex].content}`;
       }
     }
 
-    let text = await callLLM(conversation, provider);
+    let text: string;
+    try {
+      text = await callLLM(conversation, provider);
+    } catch (llmError) {
+      return Response.json({
+        text: llmErrorMessage(llmError),
+        hasCode: false,
+        code: null,
+        error: "llm_connection_error",
+      }, { status: 200 });
+    }
+
     let code = extractCode(text);
 
     if (!code) {
       conversation.push({ role: "assistant", content: text });
       conversation.push({ role: "user", content: "No veo codigo Python. Incluye el codigo entre triple backtick python." });
-      text = await callLLM(conversation, provider);
+      try {
+        text = await callLLM(conversation, provider);
+      } catch {
+        return Response.json({ text, hasCode: false, code: null });
+      }
       code = extractCode(text);
     }
 
@@ -267,12 +334,16 @@ export async function POST(req: Request) {
 
     while (!result.ok && attempts < 8) {
       const hint = classifyError(result.error || "");
-      const errorMsg = `El codigo anterior fallo con este error:\n\n${result.error}\n\n${hint}\n\nCorrige el codigo y entregalo entre triple backtick python.`;
+      const errorMsg = `El codigo anterior fallo:\n\n${result.error}\n\n${hint}\n\nCorrige el codigo y entregalo entre triple backtick python.`;
 
       conversation.push({ role: "assistant", content: `\`\`\`python\n${code}\n\`\`\`` });
       conversation.push({ role: "user", content: errorMsg });
 
-      text = await callLLM(conversation, provider);
+      try {
+        text = await callLLM(conversation, provider);
+      } catch {
+        break;
+      }
       code = extractCode(text);
       if (!code) break;
       result = await runCadGeneration(code);
@@ -306,6 +377,11 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("Chat API error:", error);
-    return Response.json({ text: "Error interno. Intenta de nuevo.", hasCode: false, code: null }, { status: 200 });
+    return Response.json({
+      text: `Error interno del servidor. ${error instanceof Error ? error.message : ""}`,
+      hasCode: false,
+      code: null,
+      error: "internal_error",
+    }, { status: 200 });
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
 
@@ -31,11 +31,10 @@ export default function ProjectSidebar() {
   const shapes = useCadStore((s) => s.shapes);
   const messages = useCadStore((s) => s.messages);
   const currentUnit = useCadStore((s) => s.currentUnit);
-  const [projects, setProjects] = useState<SavedProject[]>([]);
-
-  useEffect(() => {
-    setProjects(loadProjects());
-  }, []);
+  const [projects, setProjects] = useState<SavedProject[]>(() => {
+    if (typeof window === "undefined") return [];
+    return loadProjects();
+  });
 
   const saveCurrent = () => {
     if (Object.keys(shapes).length === 0) return;
@@ -82,7 +81,7 @@ export default function ProjectSidebar() {
   const shapeCount = Object.keys(shapes).length;
 
   return (
-    <div className="flex flex-col h-full bg-snow rounded-[28px] overflow-hidden">
+    <div className="flex flex-col h-full bg-snow rounded-3xl overflow-hidden">
       <div className="px-6 py-4 border-b border-silver-mist flex items-center justify-between">
         <h2 className="text-body-sm font-semibold text-ink">Proyectos</h2>
         <button

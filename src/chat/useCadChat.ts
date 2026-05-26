@@ -18,30 +18,42 @@ export function useCadChat() {
   const abortRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, imageBase64?: string) => {
       if (isProcessing) return;
       setProcessing(true);
       setStreamingText("");
 
-      const userMsg: ChatMessage = { id: `msg_${Date.now()}`, role: "user", content, timestamp: Date.now() };
+      const userMsg: ChatMessage = {
+        id: `msg_${Date.now()}`,
+        role: "user",
+        content,
+        timestamp: Date.now(),
+        image: imageBase64,
+      };
       addMessage(userMsg);
 
       const controller = new AbortController();
       abortRef.current = controller;
 
       try {
-        const history = [...messages.slice(-10), userMsg].map((m) => ({ role: m.role, content: m.content }));
+        const history = [...messages.slice(-10), userMsg].map((m) => ({
+          role: m.role,
+          content: m.content,
+          image: m.image,
+        }));
 
-        setStreamingText("Diseñando pieza...");
+        setStreamingText("Analizando...");
+
+        const body: Record<string, unknown> = {
+          messages: history,
+          provider,
+          currentCode: useCadStore.getState().lastCode,
+        };
 
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: history,
-            provider,
-            currentCode: useCadStore.getState().lastCode,
-          }),
+          body: JSON.stringify(body),
           signal: controller.signal,
         });
 
@@ -72,7 +84,7 @@ export function useCadChat() {
         addMessage({
           id: `msg_${Date.now()}_err`,
           role: "assistant",
-          content: `Error de conexión. Verifica que los servidores estén corriendo.`,
+          content: `Error de conexion. Verifica que los servidores esten corriendo.`,
           timestamp: Date.now(),
         });
       } finally {
@@ -81,7 +93,7 @@ export function useCadChat() {
         abortRef.current = null;
       }
     },
-    [messages, addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, provider]
+    [messages, addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, provider]
   );
 
   return { messages, sendMessage, cancel: () => abortRef.current?.abort(), isProcessing, streamingText };

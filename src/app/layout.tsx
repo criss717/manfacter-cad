@@ -9,8 +9,8 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "ManfacterCAD — Diseño 3D con IA",
-    template: "%s | ManfacterCAD",
+    default: "Manfacter Studio — Diseño 3D con IA",
+    template: "%s | Manfacter Studio",
   },
   description:
     "Crea piezas 3D para impresión y fabricación usando lenguaje natural. Exporta a STL, STEP y más.",

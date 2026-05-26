@@ -1,7 +1,7 @@
 """
 CAD Generator - ejecuta build123d Python code y exporta STEP/STL/GLB.
 
-Usa el exportador STEP XCAF de text-to-cad para preservar colores, labels
+Usa el exportador STEP XCAF local para preservar colores, labels
 y estructura de assembly. GLB via trimesh con normales calculadas.
 """
 
@@ -10,12 +10,6 @@ import uuid
 from pathlib import Path
 
 import numpy as np
-
-_TEXT_TO_CAD_SCRIPTS = (
-    Path(__file__).resolve().parents[3] / "text-to-cad" / "skills" / "cad" / "scripts"
-)
-if str(_TEXT_TO_CAD_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(_TEXT_TO_CAD_SCRIPTS))
 
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
@@ -98,7 +92,7 @@ def _extract_trimesh(shape) -> "trimesh.Trimesh | None":
 
 def _export_step(shape, output_path: Path) -> Path:
     """STEP via XCAF (text-to-cad pipeline). Preserva colores, labels y estructura."""
-    from common.step_export import export_build123d_step_scene
+    from .text_to_cad.step_export import export_build123d_step_scene
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -137,72 +131,107 @@ def _export_stl(shape, output_path: Path) -> Path:
 
 
 def generate_cad(code: str, model_id: str | None = None) -> dict:
+    import time
+
     mid = model_id or uuid.uuid4().hex[:12]
     output_dir = OUTPUT_DIR / mid
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    print(f"\n[CAD] ──────────────────────────────────────")
+    print(f"[CAD] ID: {mid}")
+    print(f"[CAD] Guardando script ({len(code)} chars)...")
+
     script_path = output_dir / "_script.py"
     script_path.write_text(code, encoding="utf-8")
+    print(f"[CAD] Script guardado en {script_path}")
+
+    t0 = time.time()
 
     try:
         import importlib.util
 
+        print(f"[CAD] Compilando modulo Python...")
         spec = importlib.util.spec_from_file_location(f"cad_model_{mid}", script_path)
         module = importlib.util.module_from_spec(spec)
         sys.modules[f"cad_model_{mid}"] = module
         spec.loader.exec_module(module)
+        print(f"[CAD] Modulo compilado OK")
 
         if not hasattr(module, "gen_step"):
+            print(f"[CAD] ERROR: gen_step() no encontrada en el script")
             return {
                 "success": False,
                 "error": "El codigo debe definir una funcion gen_step() que devuelva una shape de build123d.",
                 "model_id": mid,
             }
 
+        print(f"[CAD] Ejecutando gen_step()...")
         shape = module.gen_step()
+        t_gen = time.time() - t0
+        print(f"[CAD] gen_step() completado en {t_gen:.2f}s")
 
         if shape is None:
+            print(f"[CAD] ERROR: gen_step() devolvio None")
             return {
                 "success": False,
                 "error": "gen_step() devolvio None.",
                 "model_id": mid,
             }
 
+        t1 = time.time()
+        print(f"[CAD] Exportando STEP XCAF...")
         step_path = output_dir / f"{mid}.step"
         _export_step(shape, step_path)
+        step_size_kb = step_path.stat().st_size / 1024 if step_path.exists() else 0
+        t_step = time.time() - t1
+        print(f"[CAD] STEP exportado ({step_size_kb:.0f} KB) en {t_step:.2f}s")
 
+        t2 = time.time()
         stl_path = output_dir / f"{mid}.stl"
+        print(f"[CAD] Exportando STL...")
         try:
             _export_stl(shape, stl_path)
+            stl_size_kb = stl_path.stat().st_size / 1024 if stl_path.exists() else 0
+            t_stl = time.time() - t2
+            print(f"[CAD] STL exportado ({stl_size_kb:.0f} KB) en {t_stl:.2f}s")
         except Exception as stl_e:
             stl_path = None
-            print(f"[WARN] STL export failed: {stl_e}")
+            t_stl = time.time() - t2
+            print(f"[CAD] STL FAIL (tras {t_stl:.2f}s): {stl_e}")
 
+        t3 = time.time()
         glb_path = output_dir / f"{mid}.glb"
+        print(f"[CAD] Exportando GLB (mallando geometria)...")
         try:
             _export_glb(shape, glb_path)
+            glb_size_kb = glb_path.stat().st_size / 1024 if glb_path.exists() else 0
+            t_glb = time.time() - t3
+            print(f"[CAD] GLB exportado ({glb_size_kb:.0f} KB) en {t_glb:.2f}s")
         except Exception as glb_e:
-            print(f"[WARN] GLB export failed: {glb_e}")
             glb_path = None
+            t_glb = time.time() - t3
+            print(f"[CAD] GLB FAIL (tras {t_glb:.2f}s): {glb_e}")
 
-        png_url = None
-        # Screenshot requires offscreen rendering (pyrender/pyglet<2). 
-        # Skip for now; facts provide enough validation data.
-        # if glb_path:
-        #     try:
-        #         from cad_engine.screenshot import render_screenshot
-        #         png_path = output_dir / f"{mid}.png"
-        #         if render_screenshot(glb_path, png_path):
-        #             png_url = f"/output/{mid}/{mid}.png"
-        #     except Exception as scr_e:
-        #         print(f"[WARN] Screenshot failed: {scr_e}")
-
+        t4 = time.time()
+        print(f"[CAD] Inspeccionando geometria...")
         facts = None
         try:
             from cad_engine.inspect import inspect_step
             facts = inspect_step(step_path)
+            if facts:
+                bb = facts.get("bbox", {})
+                faces = facts.get("faces", "?")
+                edges = facts.get("edges", "?")
+                solids = facts.get("solids", "?")
+                print(f"[CAD] Inspeccion OK: bbox={bb}, faces={faces}, edges={edges}, solids={solids}")
         except Exception as insp_e:
-            print(f"[WARN] Inspection failed: {insp_e}")
+            print(f"[CAD] Inspeccion FAIL: {insp_e}")
+        t_insp = time.time() - t4
+        print(f"[CAD] Inspeccion completada en {t_insp:.2f}s")
+
+        total = time.time() - t0
+        print(f"[CAD] COMPLETADO en {total:.2f}s total")
+        print(f"[CAD] ──────────────────────────────────────")
 
         return {
             "success": True,
@@ -210,17 +239,22 @@ def generate_cad(code: str, model_id: str | None = None) -> dict:
             "step_url": f"/output/{mid}/{mid}.step",
             "stl_url": f"/output/{mid}/{mid}.stl" if stl_path else None,
             "glb_url": f"/output/{mid}/{mid}.glb" if glb_path else None,
-            "png_url": png_url,
             "facts": facts,
         }
 
     except Exception as e:
         import traceback
 
+        elapsed = time.time() - t0
+        tb = traceback.format_exc()
+        print(f"[CAD] ERROR tras {elapsed:.2f}s: {type(e).__name__}: {e}")
+        print(f"[CAD] Traceback:\n{tb}")
+        print(f"[CAD] ──────────────────────────────────────")
+
         return {
             "success": False,
             "error": f"{type(e).__name__}: {e}",
-            "traceback": traceback.format_exc(),
+            "traceback": tb,
             "generated_code": code,
             "model_id": mid,
         }

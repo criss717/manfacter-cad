@@ -1,27 +1,23 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Grid, Environment, useGLTF } from "@react-three/drei";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls, Environment, useGLTF, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 import { motion } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
-import ViewCube3D, { viewRefs } from "./ViewCube3D";
-import { useThree } from "@react-three/fiber";
+import ViewCube3D, { syncViewCube } from "./ViewCube3D";
 
-function ViewCubeSync() {
-  const { camera, controls } = useThree() as {
-    camera: THREE.PerspectiveCamera;
-    controls: { target: THREE.Vector3; update: () => void };
-  };
-  useEffect(() => {
-    viewRefs.camera = camera;
-    viewRefs.controls = controls;
-  }, [camera, controls]);
-  return null;
+function FloorPlane() {
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.05, 0]} receiveShadow>
+      <planeGeometry args={[400, 400]} />
+      <shadowMaterial transparent opacity={0.08} />
+    </mesh>
+  );
 }
 
-function GlbModel({ url }: { url: string }) {
+function GlbModel({ url, color }: { url: string; color: string }) {
   const { scene } = useGLTF(url);
   useEffect(() => {
     if (scene) {
@@ -31,9 +27,9 @@ function GlbModel({ url }: { url: string }) {
           child.receiveShadow = true;
           const mat = child.material as THREE.MeshStandardMaterial;
           if (mat) {
-            mat.roughness = 0.4;
-            mat.metalness = 0.05;
-            mat.side = THREE.DoubleSide;
+            mat.roughness = 0.35;
+            mat.metalness = 0.02;
+            mat.color = new THREE.Color(color);
           }
         }
       });
@@ -41,12 +37,14 @@ function GlbModel({ url }: { url: string }) {
       const center = box.getCenter(new THREE.Vector3());
       scene.position.set(-center.x, -center.y, -center.z);
     }
-  }, [scene]);
+  }, [scene, color]);
   return scene ? <primitive object={scene} /> : null;
 }
 
 export default function CadExplorer() {
   const glbUrl = useCadStore((s) => s.glbUrl);
+  const modelColor = useCadStore((s) => s.modelColor);
+  const sceneBackground = useCadStore((s) => s.sceneBackground);
   const [mounted, setMounted] = useState(false);
   const [key, setKey] = useState(0);
 
@@ -67,55 +65,67 @@ export default function CadExplorer() {
         key={key}
         camera={{ position: [120, 80, 120], fov: 50, near: 0.1, far: 5000 }}
         gl={{ antialias: true, preserveDrawingBuffer: true }}
-        style={{ background: "#3a3a3c" }}
+        style={{ background: sceneBackground }}
+        shadows
       >
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[10, 15, 10]} intensity={1} castShadow />
-        <directionalLight position={[-5, -5, -5]} intensity={0.2} />
-        <Grid
-          infiniteGrid
-          cellSize={5}
-          cellThickness={0.5}
-          sectionSize={50}
-          sectionThickness={1.5}
-          sectionColor="#555"
-          cellColor="#444"
-          fadeDistance={120}
+        <hemisphereLight intensity={0.4} groundColor="#d1d1d6" />
+        <ambientLight intensity={0.3} />
+        <directionalLight
+          position={[60, 100, 80]}
+          intensity={0.9}
+          castShadow
+          shadow-mapSize-width={1024}
+          shadow-mapSize-height={1024}
+          shadow-camera-far={500}
+          shadow-camera-left={-100}
+          shadow-camera-right={100}
+          shadow-camera-top={100}
+          shadow-camera-bottom={-100}
         />
-        <Environment preset="city" background={false} />
+        <directionalLight position={[-40, 30, -20]} intensity={0.25} />
+        <directionalLight position={[0, 20, -80]} intensity={0.15} />
+
+        <FloorPlane />
+
+        <Environment preset="studio" background={false} />
+
         {glbUrl && (
           <Suspense fallback={null}>
-            <GlbModel url={glbUrl} />
+            <GlbModel url={glbUrl} color={modelColor} />
           </Suspense>
         )}
+
+        <ContactShadows
+          position={[0, -0.04, 0]}
+          opacity={0.15}
+          scale={150}
+          blur={2.5}
+          far={10}
+        />
+
         <OrbitControls
+          ref={syncViewCube}
           enableDamping
           dampingFactor={0.08}
           minDistance={5}
           maxDistance={2000}
           target={[0, 0, 0]}
         />
-        <ViewCubeSync />
       </Canvas>
 
       {glbUrl && <ViewCube3D />}
 
       {!glbUrl && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ background: "#3a3a3c" }}>
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ background: sceneBackground }}>
           <motion.p
-            animate={{ opacity: [0.5, 1, 0.5] }}
+            animate={{ opacity: [0.4, 1, 0.4] }}
             transition={{ duration: 3, repeat: Infinity }}
-            className="text-white/50 text-body text-center leading-relaxed"
+            className={sceneBackground === "#f5f5f7" || sceneBackground === "#ffffff" || sceneBackground === "#fff" ? "text-ink/25 text-body text-center leading-relaxed" : "text-white/40 text-body text-center leading-relaxed"}
           >
             Describe tu pieza en el chat<br />para verla aqui en 3D
           </motion.p>
         </div>
       )}
-
-      <div className="absolute bottom-4 left-4 text-[10px] text-white/30 font-medium tracking-wider uppercase">
-        {glbUrl ? "OpenCASCADE" : ""}
-      </div>
     </motion.div>
   );
 }
-

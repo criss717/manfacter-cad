@@ -14,6 +14,50 @@
   --color-caution: #b64400;
 
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.33;
+  --text-caption--letter-spacing: -0.016em;
+  --text-footnote: 0.8125rem;
+  --text-footnote--line-height: 1.38;
+  --text-footnote--letter-spacing: -0.006em;
+  --text-body-sm: 0.875rem;
+  --text-body-sm--line-height: 1.43;
+  --text-body-sm--letter-spacing: -0.003em;
+  --text-body: 1.0625rem;
+  --text-body--line-height: 1.47;
+  --text-body--letter-spacing: -0.006em;
+  --text-subheading: 1.25rem;
+  --text-subheading--line-height: 1.4;
+  --text-subheading--letter-spacing: -0.01em;
+  --text-heading-sm: 1.5rem;
+  --text-heading-sm--line-height: 1.29;
+  --text-heading-sm--letter-spacing: -0.015em;
+  --text-heading: 2.5rem;
+  --text-heading--line-height: 1.17;
+  --text-heading--letter-spacing: -0.015em;
+  --text-heading-lg: 3.5rem;
+  --text-heading-lg--line-height: 1.07;
+  --text-heading-lg--letter-spacing: -0.016em;
+  --text-display: 6rem;
+  --text-display--line-height: 1.04;
+  --text-display--letter-spacing: -0.022em;
+
+  --radius-sm: 0.625rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.125rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 1.75rem;
+  --radius-full: 62.4375rem;
+
+  --spacing-18: 4.5rem;
+  --spacing-22: 5.5rem;
+  --spacing-26: 6.5rem;
+  --spacing-30: 7.5rem;
+  --spacing-34: 8.5rem;
+  --spacing-38: 9.5rem;
+  --spacing-95: 23.75rem;
 }
 
 :root {
@@ -27,4 +71,5 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv01", "cv03", "cv04", "cv10", "cv11";
 }

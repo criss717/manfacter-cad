@@ -6,7 +6,7 @@ import CadExplorer from "@/viewport/CadExplorer";
 import ChatPanel from "@/chat/ChatPanel";
 import ProjectSidebar from "@/components/ProjectSidebar";
 import ExportPanel from "@/export/ExportButton";
-import PropertyPanel from "@/components/PropertyPanel";
+import InspectorPanel from "@/components/InspectorPanel";
 import { useCadStore } from "@/store/cadStore";
 import Link from "next/link";
 import Image from "next/image";
@@ -15,7 +15,7 @@ export default function CadPage() {
   const glbUrl = useCadStore((s) => s.glbUrl);
   const [mounted, setMounted] = useState(false);
   const [showProjects, setShowProjects] = useState(false);
-  const [showProperties, setShowProperties] = useState(false);
+  const [showInspector, setShowInspector] = useState(false);
 
   useEffect(() => {
     const id = setTimeout(() => setMounted(true), 0);
@@ -31,9 +31,9 @@ export default function CadPage() {
         <div className="flex-1 p-4 pl-0 flex flex-col min-w-0">
           <div className="flex items-center justify-between mb-3 px-1">
             <div className="flex items-center gap-3">
-              <Image src="/logo.png" alt="ManfacterCAD" width={28} height={28} className="rounded-lg" />
+              <Image src="/logo.png" alt="Manfacter" width={82} height={32} className="rounded-lg object-contain" />
               <div>
-                <h1 className="text-heading-sm font-bold text-ink tracking-tight">ManfacterCAD</h1>
+                <h1 className="text-heading-sm font-bold text-ink tracking-tight">Studio</h1>
                 <p className="text-caption text-graphite -mt-0.5">Describe tu pieza para empezar</p>
               </div>
             </div>
@@ -86,9 +86,9 @@ export default function CadPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
               </svg>
             </button>
-            <Image src="/logo.png" alt="ManfacterCAD" width={28} height={28} className="rounded-lg" />
+            <Image src="/logo.png" alt="Manfacter" width={72} height={28} className="rounded-lg object-contain" />
             <div>
-              <h1 className="text-heading-sm font-bold text-ink tracking-tight">ManfacterCAD</h1>
+              <h1 className="text-heading-sm font-bold text-ink tracking-tight">Studio</h1>
               <p className="text-caption text-graphite -mt-0.5">
                 {glbUrl ? "Modelo cargado" : "Describe tu pieza para empezar"}
               </p>
@@ -97,9 +97,9 @@ export default function CadPage() {
           <div className="flex items-center gap-2">
             <ExportPanel />
             <button
-              onClick={() => setShowProperties(!showProperties)}
+              onClick={() => setShowInspector(!showInspector)}
               className={`rounded-full text-caption font-medium px-4 py-1.5 transition-colors duration-100 ${
-                showProperties
+                showInspector
                   ? "bg-azure text-snow"
                   : "bg-snow text-ink hover:bg-silver-mist/50"
               }`}
@@ -119,15 +119,15 @@ export default function CadPage() {
           <CadExplorer />
 
           <AnimatePresence>
-            {showProperties && (
+            {showInspector && (
               <motion.div
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 280, opacity: 1 }}
+                animate={{ width: 260, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
                 className="shrink-0 overflow-hidden pl-4"
               >
-                <PropertyPanel />
+                <InspectorPanel />
               </motion.div>
             )}
           </AnimatePresence>
