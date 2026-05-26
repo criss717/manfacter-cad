@@ -1,6 +1,5 @@
 import { generateText, type CoreMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -139,12 +138,12 @@ function llmErrorMessage(error: unknown): string {
 
 export async function callLLM(messages: CoreMessage[], provider: string) {
   const opencodeKey = process.env.OPENCODE_API_KEY ?? "";
-  let model: ReturnType<ReturnType<typeof createOpenAICompatible>> | ReturnType<ReturnType<typeof createOpenAI>> | ReturnType<ReturnType<typeof createGoogleGenerativeAI>>;
+
+  let model;
   if (provider === "deepseek" || provider === "glm" || provider === "kimi") {
-    const c = createOpenAICompatible({
-      name: "opencode-go",
+    const c = createOpenAI({
       baseURL: "https://opencode.ai/zen/go/v1",
-      headers: { Authorization: `Bearer ${opencodeKey}` },
+      apiKey: opencodeKey,
     });
     if (provider === "deepseek") model = c("deepseek-v4-pro");
     else if (provider === "glm") model = c("glm-5.1");
@@ -156,9 +155,9 @@ export async function callLLM(messages: CoreMessage[], provider: string) {
     const c = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "" });
     model = c("gemini-3.5-flash");
   }
+
   const result = await generateText({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    model: model as any,
+    model: model as Parameters<typeof generateText>[0]["model"],
     system: CAD_SYSTEM_PROMPT,
     messages,
     maxRetries: 1,
