@@ -20,10 +20,8 @@ let _ctrl: { target: THREE.Vector3; update: () => void } | null = null;
 function updateFromCamera() {
   const cam = _cam;
   if (!cam) return { face: "front" as string, rx: -20, ry: -35 };
-
   const dir = new THREE.Vector3();
   cam.getWorldDirection(dir).normalize();
-
   const viewDir = dir.clone().negate();
 
   let bestFace = "front";
@@ -33,17 +31,15 @@ function updateFromCamera() {
     const dot = viewDir.dot(fd);
     if (dot > bestDot) { bestDot = dot; bestFace = face.id; }
   }
-
   const rx = Math.asin(-viewDir.y) * (180 / Math.PI);
   const ry = Math.atan2(-viewDir.x, -viewDir.z) * (180 / Math.PI);
-
   return { face: bestFace, rx, ry };
 }
 
 export const syncViewCube = (controls: { target: THREE.Vector3; update: () => void } | null) => {
   if (!controls) return;
   _ctrl = controls;
-  const orig = (controls as Record<string, unknown>);
+  const orig = controls as Record<string, unknown>;
   const cam = orig.object as THREE.PerspectiveCamera | undefined;
   if (cam) _cam = cam;
 };
@@ -57,20 +53,30 @@ function notifySubscribers() {
   for (const fn of _subscribers) fn();
 }
 
-if (typeof window !== "undefined") {
-  setInterval(() => {
-    if (_ctrl) {
-      const state = updateFromCamera();
-      notifySubscribers();
-    }
-  }, 100);
-}
-
 export default function ViewCube3D() {
   const [state, setState] = useState(() => updateFromCamera());
 
   useEffect(() => {
-    return subscribeViewCube(() => setState(updateFromCamera()));
+    const unsub = subscribeViewCube(() => setState(updateFromCamera()));
+    let id: number;
+    const loop = () => {
+      if (_ctrl) {
+        setState((prev) => {
+          const next = updateFromCamera();
+          if (next.face !== prev.face || Math.abs(next.rx - prev.rx) > 0.5 || Math.abs(next.ry - prev.ry) > 0.5) {
+            return next;
+          }
+          return prev;
+        });
+        notifySubscribers();
+      }
+      id = requestAnimationFrame(loop);
+    };
+    id = requestAnimationFrame(loop);
+    return () => {
+      unsub();
+      cancelAnimationFrame(id);
+    };
   }, []);
 
   const goToFace = useCallback((faceId: string) => {

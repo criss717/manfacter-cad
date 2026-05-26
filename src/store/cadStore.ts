@@ -58,7 +58,14 @@ interface CadStore {
 
 export const useCadStore = create<CadStore>((set) => ({
   shapes: {},
-  messages: [],
+  messages: [
+    {
+      id: "msg_welcome",
+      role: "assistant",
+      content: "¡Hola! Soy tu ingeniero de Manfacter especializado en fabricación digital e impresión 3D. Si necesitas asesoramiento sobre materiales, tolerancias, diseño para impresión o quieres que modele alguna pieza en 3D, aquí estoy para ayudarte. ¿En qué puedo colaborar contigo hoy?",
+      timestamp: Date.now(),
+    },
+  ],
   isProcessing: false,
   currentUnit: "mm",
   glbUrl: null,
@@ -100,7 +107,21 @@ export const useCadStore = create<CadStore>((set) => ({
   setSceneBackground: (color) => set({ sceneBackground: color }),
 
   clearScene: () => set({
-    shapes: {}, messages: [], glbUrl: null, stepUrl: null, stlUrl: null,
-    lastCode: null, lastParams: {}, modelColor: "#0080ff", sceneBackground: "#f5f5f7",
+    shapes: {},
+    messages: [
+      {
+        id: "msg_welcome",
+        role: "assistant",
+        content: "¡Hola! Soy tu ingeniero de Manfacter especializado en fabricación digital e impresión 3D. Si necesitas asesoramiento sobre materiales, tolerancias, diseño para impresión o quieres que modele alguna pieza en 3D, aquí estoy para ayudarte. ¿En qué puedo colaborar contigo hoy?",
+        timestamp: Date.now(),
+      },
+    ],
+    glbUrl: null,
+    stepUrl: null,
+    stlUrl: null,
+    lastCode: null,
+    lastParams: {},
+    modelColor: "#0080ff",
+    sceneBackground: "#f5f5f7",
   }),
 }));

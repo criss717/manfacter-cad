@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
 
 function replaceParamValue(code: string, name: string, value: number): string {
-  const re = new RegExp(`^(${name}\\s*=\\s*)[\\d.]+`, "m");
+  const re = new RegExp(`^(\\s*${name}\\s*=\\s*)[\\d.]+`, "m");
   return code.replace(re, `$1${value}`);
 }
 

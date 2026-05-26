@@ -25,7 +25,7 @@ export default function CadPage() {
   if (!mounted) {
     return (
       <div className="flex flex-1 h-screen overflow-hidden bg-fog">
-        <div className="w-95 shrink-0 p-4">
+        <div className="w-100 shrink-0 p-4">
           <ChatPanel />
         </div>
         <div className="flex-1 p-4 pl-0 flex flex-col min-w-0">
@@ -64,7 +64,7 @@ export default function CadPage() {
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.344, ease: [0.25, 0.1, 0.25, 1] }}
-        className="w-95 shrink-0 p-4"
+        className="w-100 shrink-0 p-4"
       >
         <ChatPanel />
       </motion.div>

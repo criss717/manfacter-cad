@@ -6,10 +6,11 @@ import { join } from "path";
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 const LLM_TIMEOUT_MS = 180_000;
+export const maxDuration = 120;
 
 function loadRef(name: string): string {
   try {
-    const p = join(process.cwd(), "references", name);
+    const p = join(process.cwd(), "backend", "references", name);
     return readFileSync(p, "utf-8");
   } catch {
     return "";
@@ -40,12 +41,72 @@ const CAD_SYSTEM_PROMPT = `Eres un ingeniero CAD experto en build123d + OpenCASC
 4. Plane.XY, Plane.YZ, Plane.XZ SOLO esos. NUNCA Plane.XN, XP, YN, YP, ZN, ZP.
 5. edges() y faces() son METODOS con parentesis: shape.edges() no shape.edges
 6. Usa shape.moved(Location((x, y, z))) para posicionar, NO Pos() solo.
-7. Agujeros: Cylinder(r, h).moved(Location((x,y,z))) y restar con -
-8. Cilindros horizontales: Cylinder(r, L, rotation=(0, 90, 0)).moved(Location((x,y,z)))
+7. Agujeros: Cylinder(radius, height).moved(Location((x,y,z))) y restar con -. Cylinder usa argumentos POSICIONALES: primero radio, luego altura. NO usa keywords r= ni h=.
+8. Cilindros horizontales: Cylinder(radius, height, rotation=(0, 90, 0)).moved(Location((x,y,z)))
 9. Box alineada a esquina: Box(X, Y, Z, align=(Align.MIN, Align.MIN, Align.MIN))
 10. Prefiere primitivas + booleanos sobre BuildPart/BuildSketch cuando sea posible.
 11. Chamfer/Fillet: sobre el solido final, usa edges().filter_by(Axis.X) para seleccionar aristas.
-12. Respondes en espanol. 1-2 frases describiendo la pieza. Codigo entre triple backtick python.
+12. Respuestas conversacionales: Si el usuario te saluda, te agradece o hace preguntas sobre manufactura, impresion 3D o materiales (que no requieran un diseño 3D), responde cordialmente como un ingeniero experto en fabricacion digital e impresion 3D, sin incluir ningun codigo Python.
+13. Respuestas de diseño: Si el usuario te pide diseñar, crear o modificar una pieza, describe la pieza en 1-2 frases en español y proporciona el codigo Python correspondiente entre triple backtick python.
+
+## FIRMAS EXACTAS — NO INVENTES NOMBRES DE PARAMETROS
+
+-- Primitivas (POSICIONALES, no keywords) --
+Box(length, width, height)                          → caja, esquina en origen
+Box(length, width, height, align=(Align.MIN, Align.MIN, Align.MIN)) → esquina en origen
+Box(length, width, height, align=(Align.CENTER, Align.CENTER, Align.CENTER)) → centrada
+Cylinder(radius, height)                            → positional: radio, altura. NUNCA r=, h=
+Cylinder(radius, height, rotation=(0,90,0))        → horizontal a lo largo de X
+Sphere(radius)                                      → positional, NUNCA r=
+Cone(bottom_radius, top_radius, height)             → cono
+Torus(major_radius, minor_radius)                   → toroide
+
+-- Posicionamiento --
+Location(x, y, z)                                   → crea ubicacion (posicional)
+shape.moved(Location(x, y, z))                      → mueve shape, NUNCA .translate()
+shape.moved(Location((x, y, z), (rx, ry, rz)))    → mueve + rota
+
+-- Booleanas (operadores) --
+a + b    → union
+a - b    → difference (agujeros, cortes)
+a * b    → intersection
+
+-- Operaciones globales --
+extrude(shape_or_sketch, amount=N)                  → extruye N mm a lo largo de Z
+extrude(shape_or_sketch, amount=N, taper=angle)    → extruye con angulo
+revolve(profile, axis=Axis.Z, angle=360)           → revolve perfil
+sweep(profile, path)                                → barrido a lo largo de path (Wire)
+loft(profiles)                                      → transicion entre lista de perfiles
+chamfer(EDGE_LIST, length)                          → bisel. chamfer(edges, 1.0). FUNCION GLOBAL.
+fillet(EDGE_LIST, radius)                           → redondeo. fillet(edges, 3.0). FUNCION GLOBAL.
+offset(shape, amount=N)                             → offset de shape. PRIMER ARG es shape.
+
+-- Seleccion de aristas y caras --
+shape.edges()                                       → EdgeList (METODO con parentesis)
+shape.faces()                                       → FaceList (METODO con parentesis)
+edges().filter_by(Axis.X)                           → aristas paralelas al eje X
+edges().filter_by(Axis.Y)                           → aristas paralelas al eje Y
+edges().sort_by(Axis.Z)                             → aristas ordenadas por posicion Z
+edges().sort_by(Axis.Z)[0]                          → primera arista (la mas baja en Z)
+edges().sort_by(Axis.Z)[-1]                         → ultima arista (la mas alta en Z)
+faces().sort_by(Axis.Z)[0]                          → cara con menor Z
+faces().sort_by(Axis.Z)[-1]                         → cara con mayor Z (tapa superior)
+
+-- Constantes --
+Plane.XY, Plane.YZ, Plane.XZ                        → unicos planos validos. NO XN, XP.
+Axis.X, Axis.Y, Axis.Z                              → ejes
+Align.MIN, Align.CENTER, Align.MAX                  → alineacion
+Mode.ADD, Mode.SUBTRACT, Mode.REPLACE               → modos de operacion
+
+-- NO EXISTEN (no inventar) --
+Plane.XN, Plane.XP, Plane.YN, Plane.YP, Plane.ZN, Plane.ZP
+shape.edges (sin parentesis)
+shape.translate() (usa .moved())
+filter_by_position(), filter_by_point()
+start_point, end_point, edge_at(), tangent_at_start
+Cylinder(r=, h=) → usa Cylinder(radius, height)
+Kind.ROUND → no existe, usa Kind.TANGENT
+offset(kind=...) → no acepta kind=, solo amount=
 
 ---
 
@@ -177,7 +238,7 @@ export function extractCode(text: string): string | null {
 
 export function extractParams(code: string): Record<string, number> {
   const params: Record<string, number> = {};
-  const re = /^(\w+)\s*=\s*([\d.]+)\s*$/gm;
+  const re = /^\s*(\w+)\s*=\s*([\d.]+)(?:\s*#.*)?\s*$/gm;
   let m;
   while ((m = re.exec(code)) !== null) {
     const name = m[1];
@@ -236,6 +297,9 @@ function classifyError(error: string): string {
   if (e.includes("boolean") || e.includes("fuse") || e.includes("cut")) return "ERROR: Operacion booleana fallida. Verifica que las shapes tengan volumen solapado. Para cortes, la herramienta debe atravesar el objetivo completamente.";
   if (e.includes("polyline") || e.includes("buildline") || e.includes("buildsketch")) return "ERROR: Polyline solo funciona dentro de BuildLine, no BuildSketch. Patron correcto: with BuildLine(): Polyline(...).";
   if (e.includes("sweep") || e.includes("loft") || e.includes("revolve")) return "ERROR en sweep/loft/revolve. Verifica que el perfil y el path/trayectoria sean validos. El perfil debe ser una Face para sweep.";
+  if (e.includes("indexerror")) {
+    return "ERROR: IndexError: list index out of range. Esto ocurre cuando intentas filtrar aristas o caras con filter_by_position(), filter_by_attribute(), etc. y el resultado es una lista vacía. Revisa que las coordenadas y el eje de filtrado sean correctos, y que uses tolerancias amplias si hay imprecisiones de coma flotante (ej. usar filter_by_position(Axis.X, valor, toler=0.5)).";
+  }
   return `ERROR: ${error}. Consulta las referencias para la API correcta y corrige.`;
 }
 
@@ -314,24 +378,13 @@ Cuando el usuario pregunte sobre materiales, tolerancias, orientacion o cualquie
     let code = extractCode(text);
 
     if (!code) {
-      conversation.push({ role: "assistant", content: text });
-      conversation.push({ role: "user", content: "No veo codigo Python. Incluye el codigo entre triple backtick python." });
-      try {
-        text = await callLLM(conversation, provider);
-      } catch {
-        return Response.json({ text, hasCode: false, code: null });
-      }
-      code = extractCode(text);
-    }
-
-    if (!code) {
       return Response.json({ text, hasCode: false, code: null });
     }
 
     let result = await runCadGeneration(code);
     let attempts = 1;
 
-    while (!result.ok && attempts < 8) {
+    while (!result.ok && attempts < 5) {
       const hint = classifyError(result.error || "");
       const errorMsg = `El codigo anterior fallo:\n\n${result.error}\n\n${hint}\n\nCorrige el codigo y entregalo entre triple backtick python.`;
 
