@@ -2,6 +2,8 @@ import { useCadStore } from "./cadStore";
 
 const PROJECTS_KEY = "manfactercad_projects";
 let _currentProjectId: string | null = null;
+const DEFAULT_MODEL_COLOR = "#0080ff";
+const DEFAULT_BG = "#f5f5f7";
 
 export function getCurrentProjectId() { return _currentProjectId; }
 
@@ -78,6 +80,21 @@ export function loadAutoSaved(): boolean {
   return loadProject(latest.id);
 }
 
+export function updateProjectColors() {
+  if (typeof window === "undefined") return;
+  const id = _currentProjectId;
+  if (!id) return;
+  try {
+    const raw = localStorage.getItem(`manfactercad_${id}`);
+    if (!raw) return;
+    const snapshot = JSON.parse(raw);
+    const s = useCadStore.getState();
+    snapshot.modelColor = s.modelColor;
+    snapshot.sceneBackground = s.sceneBackground;
+    localStorage.setItem(`manfactercad_${id}`, JSON.stringify(snapshot));
+  } catch {}
+}
+
 export function loadProject(id: string): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -107,8 +124,8 @@ export function loadProject(id: string): boolean {
       stlUrl: snapshot.stlUrl || null,
       stepUrls: snapshot.stepUrls || [],
       stlUrls: snapshot.stlUrls || [],
-      modelColor: snapshot.modelColor || "#0080ff",
-      sceneBackground: snapshot.sceneBackground || "#f5f5f7",
+      modelColor: snapshot.modelColor || DEFAULT_MODEL_COLOR,
+      sceneBackground: snapshot.sceneBackground || DEFAULT_BG,
       shapes: {},
       isProcessing: false,
     });

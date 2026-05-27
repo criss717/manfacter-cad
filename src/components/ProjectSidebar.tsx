@@ -11,6 +11,8 @@ import {
 } from "@/store/autoSave";
 
 export default function ProjectSidebar() {
+  // Subscribe to trigger re-render on saves
+  useCadStore((s) => s.projectRefreshKey);
   const projects = getProjects();
   const activeId = getCurrentProjectId();
 

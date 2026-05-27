@@ -247,6 +247,7 @@ export default function ChatPanel() {
         </button>
         <input
           ref={inputRef}
+          autoFocus
           type="text"
           placeholder="Describe tu pieza o pega una imagen (Ctrl+V)..."
           disabled={isProcessing}

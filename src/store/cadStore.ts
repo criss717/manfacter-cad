@@ -14,22 +14,11 @@ export interface CadParams {
   [name: string]: number;
 }
 
-export interface ShapeData {
-  id: string;
-  name: string;
-  type: string;
-  primitiveType?: string;
-  dimensions?: Record<string, number>;
-  children: string[];
-  color: string;
-  position: [number, number, number];
-  rotation: [number, number, number];
-  scaleVec: [number, number, number];
-  visible: boolean;
-}
+const DEFAULT_COLOR = "#0080ff";
+const DEFAULT_BG = "#f5f5f7";
 
 interface CadStore {
-  shapes: Record<string, ShapeData>;
+  shapes: Record<string, unknown>;
   messages: ChatMessage[];
   isProcessing: boolean;
   currentUnit: "mm" | "in";
@@ -43,12 +32,13 @@ interface CadStore {
   modelColor: string;
   sceneBackground: string;
   pendingGlbUrl: string | null;
+  projectRefreshKey: number;
 
   addMessage: (msg: ChatMessage) => void;
   setProcessing: (v: boolean) => void;
-  addShape: (data: ShapeData) => void;
-  updateShape: (id: string, updates: Partial<ShapeData>) => void;
-  setShapes: (shapes: Record<string, ShapeData>) => void;
+  addShape: (data: unknown) => void;
+  updateShape: (id: string, updates: Partial<unknown>) => void;
+  setShapes: (shapes: Record<string, unknown>) => void;
   setGlbUrl: (url: string | null) => void;
   setStepUrl: (url: string | null) => void;
   setStlUrl: (url: string | null) => void;
@@ -59,7 +49,6 @@ interface CadStore {
   setModelColor: (color: string) => void;
   setSceneBackground: (color: string) => void;
   bumpProjectRefresh: () => void;
-  projectRefreshKey: number;
   clearScene: () => void;
 }
 
@@ -82,52 +71,43 @@ export const useCadStore = create<CadStore>((set) => ({
   stlUrls: [],
   lastCode: null,
   lastParams: {},
-  modelColor: "#0080ff",
-  sceneBackground: "#f5f5f7",
+  modelColor: DEFAULT_COLOR,
+  sceneBackground: DEFAULT_BG,
   pendingGlbUrl: null,
+  projectRefreshKey: 0,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
-
   setProcessing: (v) => set({ isProcessing: v }),
-
-  addShape: (data) =>
-    set((s) => ({ shapes: { ...s.shapes, [data.id]: data } })),
-
-  updateShape: (id, updates) =>
-    set((s) => {
-      const shape = s.shapes[id];
-      if (!shape) return s;
-      return { shapes: { ...s.shapes, [id]: { ...shape, ...updates } } };
-    }),
-
+  addShape: (data) => set((s) => ({ shapes: { ...s.shapes, [(data as Record<string, unknown>).id as string]: data } })),
+  updateShape: (id, updates) => set((s) => {
+    const shape = s.shapes[id];
+    if (!shape) return s;
+    return { shapes: { ...s.shapes, [id]: { ...shape, ...updates } } };
+  }),
   setShapes: (shapes) => set({ shapes }),
-
   setGlbUrl: (url) => set({ glbUrl: url }),
   setStepUrl: (url) => set({ stepUrl: url }),
   setStlUrl: (url) => set({ stlUrl: url }),
-
   addUrls: (glb, step, stl) => set((s) => ({
-    stepUrls: step ? [...s.stepUrls.filter(u => u !== step), step] : s.stepUrls,
-    stlUrls: stl ? [...s.stlUrls.filter(u => u !== stl), stl] : s.stlUrls,
-    pendingGlbUrl: glb || s.pendingGlbUrl,
+    stepUrls: step ? [...s.stepUrls, step] : s.stepUrls,
+    stlUrls: stl ? [...s.stlUrls, stl] : s.stlUrls,
   })),
-
-  commitPendingGlb: () => set((s) => ({ glbUrl: s.pendingGlbUrl || s.glbUrl, pendingGlbUrl: null })),
-
+  commitPendingGlb: () => set((s) => ({
+    glbUrl: s.pendingGlbUrl || s.glbUrl,
+    pendingGlbUrl: null,
+  })),
   setLastCode: (code, params) => set({ lastCode: code, lastParams: params }),
-
-  updateParam: (name, value) =>
-    set((s) => ({
-      lastParams: { ...s.lastParams, [name]: value },
-    })),
-
-  setModelColor: (color) => set({ modelColor: color }),
-  setSceneBackground: (color) => set({ sceneBackground: color }),
-
-  projectRefreshKey: 0,
+  updateParam: (name, value) => set((s) => ({
+    lastParams: { ...s.lastParams, [name]: value },
+  })),
+  setModelColor: (color) => {
+    set({ modelColor: color });
+  },
+  setSceneBackground: (color) => {
+    set({ sceneBackground: color });
+  },
   bumpProjectRefresh: () => set((s) => ({ projectRefreshKey: s.projectRefreshKey + 1 })),
-
-  clearScene: () => set({
+  clearScene: () => set((s) => ({
     shapes: {},
     messages: [
       {
@@ -144,7 +124,7 @@ export const useCadStore = create<CadStore>((set) => ({
     stlUrls: [],
     lastCode: null,
     lastParams: {},
-    modelColor: "#0080ff",
-    sceneBackground: "#f5f5f7",
-  }),
+    modelColor: DEFAULT_COLOR,
+    sceneBackground: DEFAULT_BG,
+  })),
 }));

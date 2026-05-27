@@ -15,8 +15,8 @@ import Image from "next/image";
 export default function CadPage() {
   const glbUrl = useCadStore((s) => s.glbUrl);
   const [mounted, setMounted] = useState(false);
-  const [showProjects, setShowProjects] = useState(false);
-  const [showInspector, setShowInspector] = useState(false);
+  const [showProjects, setShowProjects] = useState(true);
+  const [showInspector, setShowInspector] = useState(true);
 
   useEffect(() => {
     const id = setTimeout(() => {

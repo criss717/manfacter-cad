@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useCadStore, type ChatMessage } from "@/store/cadStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { autoSaveConversation } from "@/store/autoSave";
@@ -29,6 +29,19 @@ export function useCadChat() {
   const [streamingText, setStreamingText] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string>("");
+  const doneRef = useRef(false);
+
+  const cancel = useCallback(() => {
+    doneRef.current = true;
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.close(); } catch {}
+    }
+    wsRef.current = null;
+    sessionIdRef.current = "";
+    setProcessing(false);
+    setStreamingText("");
+  }, [setProcessing]);
 
   const getAgentUrl = useCallback(() => {
     return provider === "gemini" ? PORT_8002 : PORT_8003;
@@ -59,6 +72,7 @@ export function useCadChat() {
   const sendMessage = useCallback(
     async (content: string, imageBase64?: string) => {
       if (isProcessing) return;
+      doneRef.current = false;
       setProcessing(true);
       setStreamingText("Conectando...");
 
@@ -92,6 +106,7 @@ export function useCadChat() {
           }, 600000);
 
           const handler = (event: MessageEvent) => {
+            if (doneRef.current) return;
             try {
               const msg = JSON.parse(event.data);
               if (done) return;
@@ -173,5 +188,15 @@ export function useCadChat() {
     [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, ensureConnection]
   );
 
-  return { messages, sendMessage, cancel: () => {}, isProcessing, streamingText };
+  // Close WebSocket on unmount (page navigation)
+  useEffect(() => {
+    return () => {
+      const ws = wsRef.current;
+      if (ws) { try { ws.close(); } catch {} }
+      wsRef.current = null;
+      sessionIdRef.current = "";
+    };
+  }, []);
+
+  return { messages, sendMessage, cancel, isProcessing, streamingText };
 }

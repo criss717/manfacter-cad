@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
-import { autoSaveConversation } from "@/store/autoSave";
+import { autoSaveConversation, updateProjectColors } from "@/store/autoSave";
 
 function extractAllParams(code: string): Record<string, number> {
   const params: Record<string, number> = {};
@@ -159,7 +159,7 @@ export default function InspectorPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-        {hasCode && !generating && paramEntries.length > 0 && (
+        {hasCode && paramEntries.length > 0 && (
           <div>
             <h3 className="text-footnote font-semibold text-graphite uppercase tracking-wider mb-3">Medidas (mm)</h3>
             <div className="space-y-3">
@@ -235,7 +235,7 @@ export default function InspectorPanel() {
                 <input
                   type="color"
                   value={modelColor}
-                  onChange={(e) => { setModelColor(e.target.value); }}
+                  onChange={(e) => { setModelColor(e.target.value); updateProjectColors(); }}
                   className="w-7 h-7 rounded-md border border-silver-mist cursor-pointer p-0"
                 />
                 <span className="text-footnote text-graphite tabular-nums">{modelColor}</span>
@@ -247,7 +247,7 @@ export default function InspectorPanel() {
                 <input
                   type="color"
                   value={sceneBackground}
-                  onChange={(e) => { setSceneBackground(e.target.value); }}
+                  onChange={(e) => { setSceneBackground(e.target.value); updateProjectColors(); }}
                   className="w-7 h-7 rounded-md border border-silver-mist cursor-pointer p-0"
                 />
                 <span className="text-footnote text-graphite tabular-nums">{sceneBackground}</span>
