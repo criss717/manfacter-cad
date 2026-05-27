@@ -6,6 +6,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+import signal
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -15,6 +16,12 @@ from websockets.asyncio.server import serve
 from google.adk import Runner
 from google.adk.sessions import InMemorySessionService
 from agent.agent import cad_agent
+
+def handler(signum, frame):
+    print(f"[AGENT] Signal {signum} received, shutting down.")
+    sys.exit(0)
+signal.signal(signal.SIGINT, handler)
+signal.signal(signal.SIGTERM, handler)
 
 
 async def process_user_message(websocket, user_text: str, user_id: str, session_id: str):

@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   description:
     "Crea piezas 3D para impresión y fabricación usando lenguaje natural. Exporta a STL, STEP y más.",
   icons: {
-    icon: "/logo.png",
+    icon: "/logo_palacin.png",
   },
 };
 

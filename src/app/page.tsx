@@ -14,7 +14,7 @@ export default function HomePage() {
         className="h-11 flex items-center justify-between px-5 bg-fog/80 backdrop-blur-md border-b border-silver-mist sticky top-0 z-50"
       >
         <div className="flex items-center gap-3">
-          <Image src="/logo.png" alt="Manfacter" width={56} height={22} className="rounded-md object-contain" />
+          <Image src="/logo_palacin.png" alt="Manfacter" width={56} height={22} className="rounded-md object-contain" />
           <span className="text-body-sm font-semibold text-ink tracking-tight">Studio</span>
         </div>
         <Link
@@ -39,7 +39,7 @@ export default function HomePage() {
             className="mb-8"
           >
             <Image
-              src="/logo.png"
+              src="/logo_palacin.png"
               alt="Manfacter"
               width={120}
               height={48}

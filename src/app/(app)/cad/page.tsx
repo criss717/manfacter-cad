@@ -31,7 +31,7 @@ export default function CadPage() {
         <div className="flex-1 p-4 pl-0 flex flex-col min-w-0">
           <div className="flex items-center justify-between mb-3 px-1">
             <div className="flex items-center gap-3">
-              <Image src="/logo.png" alt="Manfacter" width={82} height={32} className="rounded-lg object-contain" />
+              <Image src="/logo_palacin.png" alt="Manfacter" width={82} height={32} className="rounded-lg object-contain" />
               <div>
                 <h1 className="text-heading-sm font-bold text-ink tracking-tight">Studio</h1>
                 <p className="text-caption text-graphite -mt-0.5">Describe tu pieza para empezar</p>
@@ -86,7 +86,7 @@ export default function CadPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
               </svg>
             </button>
-            <Image src="/logo.png" alt="Manfacter" width={72} height={28} className="rounded-lg object-contain" />
+            <Image src="/logo_palacin.png" alt="Manfacter" width={72} height={28} className="rounded-lg object-contain" />
             <div>
               <h1 className="text-heading-sm font-bold text-ink tracking-tight">Studio</h1>
               <p className="text-caption text-graphite -mt-0.5">
