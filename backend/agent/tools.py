@@ -39,6 +39,8 @@ def run_cad_code(code: str) -> str:
         "stl_url": result.get("stl_url"),
         "facts": result.get("facts"),
         "error": result.get("error"),
+        "code": code,
+        "model_id": mid,
     })
 
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
-import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCadChat } from "./useCadChat";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -137,15 +136,11 @@ export default function ChatPanel() {
                 }`}
               >
                 {msg.image && (
-                  <div className="relative mb-2" style={{ width: 200, height: 200 }}>
-                    <Image
-                      src={msg.image}
-                      alt="Uploaded"
-                      fill
-                      className="rounded-lg object-contain"
-                      unoptimized
-                    />
-                  </div>
+                  <img
+                    src={msg.image}
+                    alt="Uploaded"
+                    className="max-w-[200px] max-h-[200px] rounded-lg mb-2 object-contain"
+                  />
                 )}
                 {msg.content}
               </div>
@@ -209,15 +204,7 @@ export default function ChatPanel() {
 
       {previewImage && (
         <div className="px-5 py-2 flex items-center gap-2 border-t border-silver-mist">
-          <div className="relative h-12 w-12 rounded-lg overflow-hidden">
-            <Image
-              src={previewImage}
-              alt="Preview"
-              fill
-              className="object-cover"
-              unoptimized
-            />
-          </div>
+          <img src={previewImage} alt="Preview" className="h-12 w-12 rounded-lg object-cover" />
           <span className="text-caption text-graphite flex-1 truncate">Imagen lista para enviar</span>
           <button onClick={clearImage} className="text-caption text-graphite hover:text-ink transition-colors">
             Quitar

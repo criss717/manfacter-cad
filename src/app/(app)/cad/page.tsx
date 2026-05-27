@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import CadExplorer from "@/viewport/CadExplorer";
 import ChatPanel from "@/chat/ChatPanel";
 import ProjectSidebar from "@/components/ProjectSidebar";
+import { loadAutoSaved } from "@/store/autoSave";
 import ExportPanel from "@/export/ExportButton";
 import InspectorPanel from "@/components/InspectorPanel";
 import { useCadStore } from "@/store/cadStore";
@@ -18,8 +19,14 @@ export default function CadPage() {
   const [showInspector, setShowInspector] = useState(false);
 
   useEffect(() => {
-    const id = setTimeout(() => setMounted(true), 0);
+    const id = setTimeout(() => {
+      setMounted(true);
+    }, 0);
     return () => clearTimeout(id);
+  }, []);
+
+  useEffect(() => {
+    loadAutoSaved();
   }, []);
 
   if (!mounted) {

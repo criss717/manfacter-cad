@@ -36,10 +36,13 @@ interface CadStore {
   glbUrl: string | null;
   stepUrl: string | null;
   stlUrl: string | null;
+  stepUrls: string[];
+  stlUrls: string[];
   lastCode: string | null;
   lastParams: CadParams;
   modelColor: string;
   sceneBackground: string;
+  pendingGlbUrl: string | null;
 
   addMessage: (msg: ChatMessage) => void;
   setProcessing: (v: boolean) => void;
@@ -49,6 +52,8 @@ interface CadStore {
   setGlbUrl: (url: string | null) => void;
   setStepUrl: (url: string | null) => void;
   setStlUrl: (url: string | null) => void;
+  addUrls: (glb: string | null, step: string | null, stl: string | null) => void;
+  commitPendingGlb: () => void;
   setLastCode: (code: string | null, params: CadParams) => void;
   updateParam: (name: string, value: number) => void;
   setModelColor: (color: string) => void;
@@ -71,10 +76,13 @@ export const useCadStore = create<CadStore>((set) => ({
   glbUrl: null,
   stepUrl: null,
   stlUrl: null,
+  stepUrls: [],
+  stlUrls: [],
   lastCode: null,
   lastParams: {},
   modelColor: "#0080ff",
   sceneBackground: "#f5f5f7",
+  pendingGlbUrl: null,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -95,6 +103,14 @@ export const useCadStore = create<CadStore>((set) => ({
   setGlbUrl: (url) => set({ glbUrl: url }),
   setStepUrl: (url) => set({ stepUrl: url }),
   setStlUrl: (url) => set({ stlUrl: url }),
+
+  addUrls: (glb, step, stl) => set((s) => ({
+    stepUrls: step ? [...s.stepUrls.filter(u => u !== step), step] : s.stepUrls,
+    stlUrls: stl ? [...s.stlUrls.filter(u => u !== stl), stl] : s.stlUrls,
+    pendingGlbUrl: glb || s.pendingGlbUrl,
+  })),
+
+  commitPendingGlb: () => set((s) => ({ glbUrl: s.pendingGlbUrl || s.glbUrl, pendingGlbUrl: null })),
 
   setLastCode: (code, params) => set({ lastCode: code, lastParams: params }),
 
@@ -119,6 +135,8 @@ export const useCadStore = create<CadStore>((set) => ({
     glbUrl: null,
     stepUrl: null,
     stlUrl: null,
+    stepUrls: [],
+    stlUrls: [],
     lastCode: null,
     lastParams: {},
     modelColor: "#0080ff",
