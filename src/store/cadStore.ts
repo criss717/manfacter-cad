@@ -58,6 +58,8 @@ interface CadStore {
   updateParam: (name: string, value: number) => void;
   setModelColor: (color: string) => void;
   setSceneBackground: (color: string) => void;
+  bumpProjectRefresh: () => void;
+  projectRefreshKey: number;
   clearScene: () => void;
 }
 
@@ -121,6 +123,9 @@ export const useCadStore = create<CadStore>((set) => ({
 
   setModelColor: (color) => set({ modelColor: color }),
   setSceneBackground: (color) => set({ sceneBackground: color }),
+
+  projectRefreshKey: 0,
+  bumpProjectRefresh: () => set((s) => ({ projectRefreshKey: s.projectRefreshKey + 1 })),
 
   clearScene: () => set({
     shapes: {},

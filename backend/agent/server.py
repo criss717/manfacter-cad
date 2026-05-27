@@ -152,6 +152,9 @@ async def agent_session(websocket):
     await websocket.send(json.dumps({"type": "ready", "message": "Agent connected"}))
 
     msg_counter = 0
+    # Persistent session ID per connection - keeps conversation context
+    session_id = f"ag_{client}_{id(websocket)}"
+    sessions: dict = {}
 
     async for raw in websocket:
         try:
@@ -162,6 +165,8 @@ async def agent_session(websocket):
 
         user_text = msg.get("message", "")
         user_image = msg.get("image", None)
+        client_sid = msg.get("session_id", session_id)
+
         if not user_text and not user_image:
             if user_image:
                 user_text = "Analiza esta imagen y genera el modelo CAD correspondiente"
@@ -170,10 +175,11 @@ async def agent_session(websocket):
                 continue
 
         msg_counter += 1
-        sid = f"session_{client}_{msg_counter}"
         uid = f"user_{client}"
+        # Reuse session for conversation continuity
+        sid = client_sid
 
-        print(f"[AGENT] MESSAGE #{msg_counter}: {user_text[:80]}...")
+        print(f"[AGENT] MESSAGE #{msg_counter} (session={sid[:12]}): {user_text[:80]}...")
 
         try:
             await process_user_message(websocket, user_text, uid, sid, user_image or None)

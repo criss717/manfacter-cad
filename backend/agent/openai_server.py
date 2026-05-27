@@ -46,7 +46,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_reference",
-            "description": "Read a build123d reference document. Use BEFORE generating code.",
+            "description": "Read a build123d reference document. ONLY use for unfamiliar errors or complex assemblies needing positioning.md.",
             "parameters": {
                 "type": "object",
                 "properties": {

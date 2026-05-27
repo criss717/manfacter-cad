@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
 import {
@@ -12,7 +11,6 @@ import {
 } from "@/store/autoSave";
 
 export default function ProjectSidebar() {
-  const [, forceUpdate] = useState(0);
   const projects = getProjects();
   const activeId = getCurrentProjectId();
 
@@ -28,7 +26,7 @@ export default function ProjectSidebar() {
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     deleteProject(id);
-    forceUpdate((n) => n + 1);
+    useCadStore.getState().bumpProjectRefresh();
   };
 
   return (

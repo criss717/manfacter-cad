@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
-import { autoSaveConversation, getCurrentProjectId } from "@/store/autoSave";
+import { autoSaveConversation } from "@/store/autoSave";
 
 function extractAllParams(code: string): Record<string, number> {
   const params: Record<string, number> = {};
@@ -46,9 +46,12 @@ function extractAllParams(code: string): Record<string, number> {
 }
 
 function replaceNumberInCode(code: string, paramName: string, newValue: number): string {
+  const isInteger = /(teeth|count|num|segments|sides)/i.test(paramName);
+  const val = isInteger ? Math.round(newValue) : newValue;
+
   const escaped = paramName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const namedRe = new RegExp(`^(\\s*${escaped}\\s*=\\s*)[\\d.]+`, "m");
-  const result = code.replace(namedRe, `$1${newValue}`);
+  const result = code.replace(namedRe, `$1${val}`);
   if (result !== code) return result;
 
   // Fallback: Box params
@@ -87,7 +90,7 @@ function replaceNumberInCode(code: string, paramName: string, newValue: number):
 }
 
 export default function InspectorPanel() {
-  const lastCode = useCadStore((s) => s.lastCode); 
+  const lastCode = useCadStore((s) => s.lastCode);
   const setGlbUrl = useCadStore((s) => s.setGlbUrl);
   const setStepUrl = useCadStore((s) => s.setStepUrl);
   const setStlUrl = useCadStore((s) => s.setStlUrl);
@@ -96,21 +99,9 @@ export default function InspectorPanel() {
   const setModelColor = useCadStore((s) => s.setModelColor);
   const sceneBackground = useCadStore((s) => s.sceneBackground);
   const setSceneBackground = useCadStore((s) => s.setSceneBackground);
-  const isProcessing = useCadStore((s) => s.isProcessing);
-
-  const persistColor = (key: string, value: string) => {
-    if (typeof window === "undefined") return;
-    try {
-      const cid = getCurrentProjectId();
-      const storageKey = cid ? `manfactercad_${cid}` : "manfactercad_autosave";
-      const save = JSON.parse(localStorage.getItem(storageKey) || "{}");
-      save[key] = value;
-      localStorage.setItem(storageKey, JSON.stringify(save));
-    } catch { /* ignore */ }
-  };
-
-  const [generating, setGenerating] = useState(false);
   const [dragValues, setDragValues] = useState<Record<string, number>>({});
+  const [generating, setGenerating] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasCode = !!lastCode;
 
   const allParams = useMemo(() => lastCode ? extractAllParams(lastCode) : {}, [lastCode]);
@@ -168,7 +159,7 @@ export default function InspectorPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-        {hasCode && !isProcessing && paramEntries.length > 0 && (
+        {hasCode && !generating && paramEntries.length > 0 && (
           <div>
             <h3 className="text-footnote font-semibold text-graphite uppercase tracking-wider mb-3">Medidas (mm)</h3>
             <div className="space-y-3">
@@ -184,21 +175,41 @@ export default function InspectorPanel() {
                       <label className="text-caption font-medium text-ink capitalize">{name.replace(/_/g, " ")}</label>
                       <span className="text-footnote text-graphite tabular-nums">{dragValues[name] ?? value}{Number.isInteger(dragValues[name] ?? value) ? ".0" : ""} mm</span>
                     </div>
-                    <div className="relative">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="range"
+                          min={min}
+                          max={max}
+                          step={step}
+                          value={dragValues[name] ?? value}
+                          onChange={(e) => setDragValues({ ...dragValues, [name]: parseFloat(e.target.value) })}
+                          onMouseUp={() => { const v = dragValues[name]; if (v !== undefined && v !== value) handleRegenerate(name, v); }}
+                          onTouchEnd={() => { const v = dragValues[name]; if (v !== undefined && v !== value) handleRegenerate(name, v); }}
+                          className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                          style={{
+                            background: `linear-gradient(to right, #0071e3 0%, #0071e3 ${pct}%, #e8e8ed ${pct}%, #e8e8ed 100%)`,
+                            accentColor: "#0071e3",
+                          }}
+                        />
+                      </div>
                       <input
-                        type="range"
+                        type="number"
                         min={min}
                         max={max}
                         step={step}
                         value={dragValues[name] ?? value}
-                        onChange={(e) => setDragValues({ ...dragValues, [name]: parseFloat(e.target.value) })}
-                        onMouseUp={() => { const v = dragValues[name]; if (v !== undefined && v !== value) handleRegenerate(name, v); }}
-                        onTouchEnd={() => { const v = dragValues[name]; if (v !== undefined && v !== value) handleRegenerate(name, v); }}
-                        className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-                        style={{
-                          background: `linear-gradient(to right, #0071e3 0%, #0071e3 ${pct}%, #e8e8ed ${pct}%, #e8e8ed 100%)`,
-                          accentColor: "#0071e3",
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v)) {
+                            setDragValues({ ...dragValues, [name]: v });
+                            if (debounceRef.current) clearTimeout(debounceRef.current);
+                            debounceRef.current = setTimeout(() => {
+                              handleRegenerate(name, v);
+                            }, 600);
+                          }
                         }}
+                        className="w-16 h-7 rounded-lg bg-fog text-body-sm text-ink text-right px-2 outline-none focus:ring-2 focus:ring-azure/30"
                       />
                     </div>
                   </div>
@@ -224,7 +235,7 @@ export default function InspectorPanel() {
                 <input
                   type="color"
                   value={modelColor}
-                  onChange={(e) => { setModelColor(e.target.value); persistColor("modelColor", e.target.value); }}
+                  onChange={(e) => { setModelColor(e.target.value); }}
                   className="w-7 h-7 rounded-md border border-silver-mist cursor-pointer p-0"
                 />
                 <span className="text-footnote text-graphite tabular-nums">{modelColor}</span>
@@ -236,7 +247,7 @@ export default function InspectorPanel() {
                 <input
                   type="color"
                   value={sceneBackground}
-                  onChange={(e) => { setSceneBackground(e.target.value); persistColor("sceneBackground", e.target.value); }}
+                  onChange={(e) => { setSceneBackground(e.target.value); }}
                   className="w-7 h-7 rounded-md border border-silver-mist cursor-pointer p-0"
                 />
                 <span className="text-footnote text-graphite tabular-nums">{sceneBackground}</span>

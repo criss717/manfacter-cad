@@ -65,6 +65,7 @@ export function autoSaveConversation() {
       projects.unshift({ id, name, msgCount: msgs.length, updatedAt: Date.now() });
     }
     saveProjects(projects);
+    useCadStore.getState().bumpProjectRefresh();
   } catch { /* quota exceeded */ }
 }
 
