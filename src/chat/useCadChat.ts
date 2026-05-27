@@ -2,10 +2,15 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useCadStore, type ChatMessage } from "@/store/cadStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { autoSaveConversation } from "@/store/autoSave";
 
-const AGENT_URL = "ws://127.0.0.1:8002";
 const BACKEND_URL = "http://127.0.0.1:8000";
+
+function getAgentUrl(provider: string): string {
+  if (provider === "gemini") return "ws://127.0.0.1:8002";
+  return "ws://127.0.0.1:8003"; // deepseek, glm, kimi
+}
 
 const PROGRESS: Record<string, string> = {
   read_reference: "Consultando documentacion...",
@@ -39,6 +44,7 @@ export function useCadChat() {
   const addUrls = useCadStore((s) => s.addUrls);
   const commitPendingGlb = useCadStore((s) => s.commitPendingGlb);
   const setLastCode = useCadStore((s) => s.setLastCode);
+  const provider = useSettingsStore((s) => s.provider);
   const [streamingText, setStreamingText] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const cancelRef = useRef<() => void>(() => {});
@@ -71,7 +77,7 @@ export function useCadChat() {
       let resolved = false;
 
       try {
-        const ws = new WebSocket(AGENT_URL);
+        const ws = new WebSocket(getAgentUrl(provider));
         wsRef.current = ws;
 
         cancelRef.current = () => {
@@ -88,7 +94,7 @@ export function useCadChat() {
           const timeout = setTimeout(() => reject(new Error("timeout")), 5000);
           ws.onopen = () => {
             clearTimeout(timeout);
-            ws.send(JSON.stringify({ message: content, image: imageBase64 || undefined }));
+            ws.send(JSON.stringify({ message: content, image: imageBase64 || undefined, provider }));
             resolve();
           };
           ws.onerror = () => { clearTimeout(timeout); reject(new Error("connection")); };
@@ -272,7 +278,7 @@ export function useCadChat() {
         setStreamingText("");
       }
     },
-    [addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, addUrls, commitPendingGlb, setLastCode]
+    [addMessage, provider, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, addUrls, commitPendingGlb, setLastCode]
   );
 
   return { messages, sendMessage, cancel, isProcessing, streamingText };
