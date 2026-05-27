@@ -99,13 +99,14 @@ async def process_user_message(websocket, user_text: str, user_id: str, session_
                         if fn_resp:
                             fn_name = getattr(fn_resp, 'name', 'unknown')
                             raw_response = getattr(fn_resp, 'response', '')
+                            print(f"[AGENT] RESPONSE type={type(raw_response).__name__}, preview={str(raw_response)[:80]}")
                             if isinstance(raw_response, dict):
                                 raw = raw_response.get("result", str(raw_response))
                                 if not isinstance(raw, str):
                                     raw = str(raw)
                             else:
                                 raw = str(raw_response)
-                            limit = 50000 if fn_name == 'run_cad_code' else 500
+                            limit = len(raw) if fn_name == 'run_cad_code' else 500
                             evt["tool_result"] = {
                                 "name": fn_name,
                                 "response": raw[:limit],

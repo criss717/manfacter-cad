@@ -105,7 +105,7 @@ export default function CadPage() {
             <ExportPanel />
             <button
               onClick={() => setShowInspector(!showInspector)}
-              className={`rounded-full text-caption font-medium px-4 py-1.5 transition-colors duration-100 ${
+              className={`rounded-full cursor-pointer text-caption font-medium px-4 py-1.5 transition-colors duration-100 ${
                 showInspector
                   ? "bg-azure text-snow"
                   : "bg-snow text-ink hover:bg-silver-mist/50"
@@ -115,7 +115,7 @@ export default function CadPage() {
             </button>
             <Link
               href="/"
-              className="rounded-full bg-snow text-ink text-caption font-medium px-4 py-1.5 hover:bg-silver-mist/50 transition-colors duration-100"
+              className="rounded-full cursor-pointer bg-snow text-ink text-caption font-medium px-4 py-1.5 hover:bg-silver-mist/50 transition-colors duration-100"
             >
               Salir
             </Link>

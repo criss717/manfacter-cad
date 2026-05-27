@@ -5,7 +5,7 @@ import * as THREE from "three";
 
 const FACES = [
   { id: "front",  label: "FRONT",  dir: [ 0,  0,  1], cssRotate: "rotateX(0deg)",    transform: "translateZ(22px)" },
-  { id: "back",   label: "BACK",   dir: [ 0,  0, -1], cssRotate: "rotateX(180deg)",  transform: "translateZ(22px)" },
+  { id: "back",   label: "BACK",   dir: [ 0,  0, -1], cssRotate: "rotateY(180deg)",  transform: "translateZ(22px)" },
   { id: "right",  label: "RIGHT",  dir: [ 1,  0,  0], cssRotate: "rotateY(90deg)",   transform: "translateZ(22px)" },
   { id: "left",   label: "LEFT",   dir: [-1,  0,  0], cssRotate: "rotateY(-90deg)",  transform: "translateZ(22px)" },
   { id: "top",    label: "TOP",    dir: [ 0,  1,  0], cssRotate: "rotateX(-90deg)",  transform: "translateZ(22px)" },
@@ -19,64 +19,52 @@ let _ctrl: { target: THREE.Vector3; update: () => void } | null = null;
 
 function updateFromCamera() {
   const cam = _cam;
-  if (!cam) return { face: "front" as string, rx: -20, ry: -35 };
+  if (!cam) return { face: "front", rx: -25, ry: -40 };
   const dir = new THREE.Vector3();
   cam.getWorldDirection(dir).normalize();
-  const viewDir = dir.clone().negate();
 
   let bestFace = "front";
   let bestDot = -Infinity;
   for (const face of FACES) {
     const fd = new THREE.Vector3(...face.dir).normalize();
-    const dot = viewDir.dot(fd);
+    const dot = dir.dot(fd);
     if (dot > bestDot) { bestDot = dot; bestFace = face.id; }
   }
-  const rx = Math.asin(-viewDir.y) * (180 / Math.PI);
-  const ry = Math.atan2(-viewDir.x, -viewDir.z) * (180 / Math.PI);
+
+  const rx = Math.asin(dir.y) * (180 / Math.PI);
+  const ry = -Math.atan2(dir.x, dir.z) * (180 / Math.PI);
+
   return { face: bestFace, rx, ry };
 }
 
 export const syncViewCube = (controls: { target: THREE.Vector3; update: () => void } | null) => {
   if (!controls) return;
   _ctrl = controls;
-  const orig = controls as Record<string, unknown>;
+  const orig = (controls as Record<string, unknown>);
   const cam = orig.object as THREE.PerspectiveCamera | undefined;
   if (cam) _cam = cam;
 };
 
 let _subscribers: Array<() => void> = [];
-export function subscribeViewCube(fn: () => void) {
+function subscribe(fn: () => void) {
   _subscribers.push(fn);
   return () => { _subscribers = _subscribers.filter((s) => s !== fn); };
 }
-function notifySubscribers() {
+function notify() {
   for (const fn of _subscribers) fn();
+}
+
+if (typeof window !== "undefined") {
+  setInterval(() => {
+    if (_ctrl) notify();
+  }, 100);
 }
 
 export default function ViewCube3D() {
   const [state, setState] = useState(() => updateFromCamera());
 
   useEffect(() => {
-    const unsub = subscribeViewCube(() => setState(updateFromCamera()));
-    let id: number;
-    const loop = () => {
-      if (_ctrl) {
-        setState((prev) => {
-          const next = updateFromCamera();
-          if (next.face !== prev.face || Math.abs(next.rx - prev.rx) > 0.5 || Math.abs(next.ry - prev.ry) > 0.5) {
-            return next;
-          }
-          return prev;
-        });
-        notifySubscribers();
-      }
-      id = requestAnimationFrame(loop);
-    };
-    id = requestAnimationFrame(loop);
-    return () => {
-      unsub();
-      cancelAnimationFrame(id);
-    };
+    return subscribe(() => setState(updateFromCamera()));
   }, []);
 
   const goToFace = useCallback((faceId: string) => {
@@ -89,7 +77,22 @@ export default function ViewCube3D() {
     const t = ctrl.target.clone();
     const dist = cam.position.distanceTo(t) || 120;
     cam.position.copy(t.clone().addScaledVector(dir, -dist));
-    cam.up.set(0, 1, 0);
+    
+    // Ajustar el vector up según la cara
+    switch (faceId) {
+      case "top":
+        cam.up.set(0, 0, 1);
+        break;
+      case "bottom":
+        cam.up.set(0, 0, -1);
+        break;
+      case "back":
+        cam.up.set(0, 1, 0);
+        break;
+      default:
+        cam.up.set(0, 1, 0);
+    }
+    
     cam.lookAt(t);
     ctrl.update();
     setState(updateFromCamera());
@@ -109,7 +112,7 @@ export default function ViewCube3D() {
   }, []);
 
   return (
-    <div className="absolute bottom-6 right-6 z-10 select-none">
+    <div className="absolute bottom-14 right-6 z-10 select-none">
       <div className="relative" style={{ width: 60, height: 60, perspective: "200px" }}>
         <div
           className="absolute inset-0"
@@ -146,7 +149,7 @@ export default function ViewCube3D() {
       </div>
       <button
         onClick={goIso}
-        className="mt-1.5 w-full h-6 rounded-md text-[8px] font-semibold tracking-wider transition-all border border-[#d2d2d7] bg-[#e8e8ed] text-[#86868b] hover:text-ink hover:bg-[#dcdce0]"
+        className="mt-8 w-full h-6 rounded-md text-[8px] font-semibold tracking-wider transition-all border border-[#d2d2d7] bg-silver-mist text-[#86868b] hover:text-ink hover:bg-[#dcdce0]"
         title="Vista isometrica"
       >
         ISO

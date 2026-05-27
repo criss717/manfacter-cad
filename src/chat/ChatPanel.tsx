@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
+import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCadChat } from "./useCadChat";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -136,10 +137,13 @@ export default function ChatPanel() {
                 }`}
               >
                 {msg.image && (
-                  <img
+                  <Image
                     src={msg.image}
                     alt="Uploaded"
-                    className="max-w-[200px] max-h-[200px] rounded-lg mb-2 object-contain"
+                    width={200}
+                    height={200}
+                    unoptimized
+                    className="rounded-lg mb-2 object-contain"
                   />
                 )}
                 {msg.content}
@@ -204,7 +208,7 @@ export default function ChatPanel() {
 
       {previewImage && (
         <div className="px-5 py-2 flex items-center gap-2 border-t border-silver-mist">
-          <img src={previewImage} alt="Preview" className="h-12 w-12 rounded-lg object-cover" />
+          <Image src={previewImage} alt="Preview" width={48} height={48} unoptimized className="rounded-lg object-cover" />
           <span className="text-caption text-graphite flex-1 truncate">Imagen lista para enviar</span>
           <button onClick={clearImage} className="text-caption text-graphite hover:text-ink transition-colors">
             Quitar
@@ -234,7 +238,7 @@ export default function ChatPanel() {
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="h-11 w-11 rounded-full bg-fog flex items-center justify-center hover:bg-silver-mist/50 transition-colors shrink-0"
+          className="h-11 w-11 cursor-pointer rounded-full bg-fog flex items-center justify-center hover:bg-silver-mist/50 transition-colors shrink-0"
           title="Adjuntar imagen"
         >
           <svg className="w-4 h-4 text-graphite" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -262,7 +266,7 @@ export default function ChatPanel() {
         ) : (
           <button
             type="submit"
-            className="h-11 w-11 rounded-full bg-azure text-snow flex items-center justify-center hover:bg-cobalt-link transition-colors duration-100 shrink-0"
+            className="h-11 w-11 cursor-pointer rounded-full bg-azure text-snow flex items-center justify-center hover:bg-cobalt-link transition-colors duration-100 shrink-0"
             title={previewImage ? "Enviar imagen y texto" : "Enviar"}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

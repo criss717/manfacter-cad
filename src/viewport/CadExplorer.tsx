@@ -1,12 +1,33 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { useEffect, Suspense } from "react";
+import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, Environment, useGLTF, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 import { motion } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
 import ViewCube3D, { syncViewCube } from "./ViewCube3D";
+
+function AutoZoom() {
+  const { scene, camera, controls } = useThree() as {
+    scene: THREE.Scene;
+    camera: THREE.PerspectiveCamera;
+    controls: { target: THREE.Vector3; update: () => void } | null;
+  };
+  useEffect(() => {
+    if (!scene.children.length || !controls) return;
+    const box = new THREE.Box3().setFromObject(scene);
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 1);
+    const dist = maxDim * 2.2;
+    const center = box.getCenter(new THREE.Vector3());
+    camera.position.set(center.x + dist * 0.7, center.y + dist * 0.5, center.z + dist * 0.7);
+    controls.target.copy(center);
+    controls.update();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
 
 function FloorPlane() {
   return (
@@ -45,24 +66,16 @@ export default function CadExplorer() {
   const glbUrl = useCadStore((s) => s.glbUrl);
   const modelColor = useCadStore((s) => s.modelColor);
   const sceneBackground = useCadStore((s) => s.sceneBackground);
-  const [mounted, setMounted] = useState(false);
-  const [key, setKey] = useState(0);
-
-  useEffect(() => { setMounted(true); }, []);
-
-  useEffect(() => {
-    if (glbUrl) setKey((k) => k + 1);
-  }, [glbUrl]);
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
-      animate={{ opacity: mounted ? 1 : 0 }}
+      animate={{ opacity: 1 }}
       transition={{ duration: 0.344, ease: [0.25, 0.1, 0.25, 1] }}
-      className="flex-1 rounded-[28px] overflow-hidden relative"
+      className="flex-1 rounded-3xl overflow-hidden relative"
     >
       <Canvas
-        key={key}
+        key={glbUrl || "empty"}
         camera={{ position: [120, 80, 120], fov: 50, near: 0.1, far: 5000 }}
         gl={{ antialias: true, preserveDrawingBuffer: true }}
         style={{ background: sceneBackground }}
@@ -92,6 +105,7 @@ export default function CadExplorer() {
         {glbUrl && (
           <Suspense fallback={null}>
             <GlbModel url={glbUrl} color={modelColor} />
+            <AutoZoom />
           </Suspense>
         )}
 

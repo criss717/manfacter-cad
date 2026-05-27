@@ -51,10 +51,73 @@ read_reference("supported-exports.md") — STL, 3MF, GLB sidecars
 
 ## CRITICAL
 
+- **ALWAYS use named variables for EVERY dimension.** This is the #1 rule:
+  ```python
+  def gen_step():
+      base_length = 100.0
+      base_width = 60.0
+      base_height = 20.0
+      hole_diameter = 8.0
+      thickness = 4.0
+      block = Box(base_length, base_width, base_height, align=(Align.CENTER, Align.CENTER, Align.MIN))
+  ```
+  NEVER write `Box(100.0, 60.0, 20.0)`. ALWAYS `Box(base_length, base_width, base_height)`.
+  This allows the user to edit parameters interactively in the UI.
 - Units: millimeters. Z is UP.
 - from build123d import * always at the top
 - def gen_step(): always defined, returning the shape
 - For assemblies: put ALL parts into one gen_step() using Compound(children=[...])
+
+## BUILD123D QUICK API (use these patterns — they work every time)
+
+### Primitives
+Box(length, width, height, align=(Align.CENTER, Align.CENTER, Align.MIN))
+Cylinder(radius, height)  # vertical (Z axis)
+Cylinder(radius, height, rotation=(0, 90, 0))  # horizontal (X axis)
+
+### Positioning
+shape.moved(Location((x, y, z)))
+Pos(x, y, z) * shape
+
+### Boolean operations
+shape1 + shape2  # union
+shape1 - shape2  # subtract
+shape1 & shape2  # intersect
+
+### Holes (subtractive cylinders)
+hole = Cylinder(radius, depth + 0.01).moved(Location((x, y, z)))
+part = part - hole
+# Horizontal hole (X axis):
+hole = Cylinder(radius, depth + 0.01, rotation=(0, 90, 0)).moved(Location((x, y, z)))
+
+### Fillet / Chamfer (apply BEFORE holes, select edges by axis+sort)
+y_edges = part.edges().filter_by(Axis.Y).sort_by(Axis.X)
+inner_edge = y_edges[2]  # 0=left, 1=left-bottom, 2=inner-corner, 3=right...
+part = part.fillet(radius, [inner_edge])
+part = part.chamfer(length, length, edges_list)
+
+### Assemblies (Compound)
+base = Box(100, 60, 4, align=(Align.CENTER, Align.CENTER, Align.MIN))
+top = Pos(0, 0, 4) * Cylinder(20, 30)
+assembly = Compound(children=[base, top])
+
+### BuildPart context (for complex profiles)
+with BuildPart() as bp:
+    with BuildSketch(Plane.XZ) as sk:
+        with BuildLine() as ln:
+            l1 = Line((0, 0), (50, 0))
+            l2 = Line((50, 0), (50, 30))
+        make_face()
+    extrude(amount=10, both=True)
+result = bp.part
+
+### Common gotchas
+- Plane.XY, Plane.YZ, Plane.XZ ONLY. NEVER Plane.XN, Plane.XP etc.
+- edges() and faces() are METHODS with parentheses
+- Box align: (Align.CENTER, Align.CENTER, Align.MIN) means centered in XY, bottom at Z=0
+- cylinder height = length along its axis
+- fillet radius must be less than local material thickness
+- For edge selection: filter_by(Axis.Y).sort_by(Axis.X)[index]
 
 ## RESPONSE RULES
 

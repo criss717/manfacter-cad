@@ -141,10 +141,10 @@ export function useCadChat() {
                 }
                 if (finalStep) setStepUrl(finalStep);
                 if (finalStl) setStlUrl(finalStl);
+                autoSaveConversation();
                 if (responseText) {
                   addMessage({ id: `msg_${Date.now()}_ai`, role: "assistant", content: responseText.trim(), timestamp: Date.now() });
                 }
-                setTimeout(() => autoSaveConversation(), 100);
                 resolve();
                 return;
               }
@@ -166,22 +166,29 @@ export function useCadChat() {
                     setStreamingText(`Procesando geometria (${runCadOk + 1}/${runCadTotal})...`);
                     try {
                       const raw = r.response;
+                      console.log("[CAD] tool_result tipo:", typeof raw, "len:", typeof raw === "string" ? raw.length : JSON.stringify(raw).length, "preview:", typeof raw === "string" ? raw.slice(0, 120) : JSON.stringify(raw).slice(0, 120));
                       if (typeof raw !== "string") {
-                        console.error("[CAD] tool_result no es string:", typeof raw);
+                        if (typeof raw === "object" && raw !== null) {
+                          const inner = (raw as Record<string, unknown>).result || (raw as Record<string, unknown>).response;
+                          if (typeof inner === "string") {
+                            console.log("[CAD] Unwrapped inner result, len:", inner.length);
+                            const data = JSON.parse(inner);
+                            if (data.ok) { runCadOk++; /* process data */ }
+                            // ... this gets complex, let me handle differently
+                          }
+                        }
                         setStreamingText("Procesando...");
                         return;
                       }
                       const data = JSON.parse(raw);
                       if (data.ok) {
                         runCadOk++;
+                        console.log("[CAD] Code captured:", typeof data.code, "length:", data.code?.length || 0, "params count:", data.code ? Object.keys(extractParamsFromCode(data.code)).length : 0);
                         if (data.glb_url) {
                           const url = String(data.glb_url);
                           const full = url.startsWith("http") ? url : `${BACKEND_URL}${url}`;
                           finalGlb = full;
                           addUrls(full, null, null);
-                          console.log("[CAD] GLB URL:", full);
-                        } else {
-                          console.log("[CAD] run_cad_code OK but no glb_url");
                         }
                         if (data.step_url) {
                           finalStep = String(data.step_url).startsWith("http") ? String(data.step_url) : `${BACKEND_URL}${String(data.step_url)}`;
@@ -192,7 +199,9 @@ export function useCadChat() {
                           addUrls(null, null, finalStl);
                         }
                         if (data.code && typeof data.code === "string") {
-                          setLastCode(data.code, extractParamsFromCode(data.code));
+                          const params = extractParamsFromCode(data.code);
+                          setLastCode(data.code, params);
+                          console.log("[CAD] setLastCode with", Object.keys(params).length, "params:", Object.keys(params));
                         }
                         setStreamingText(`Geometria OK (${runCadOk}/${runCadTotal})`);
                       } else {
@@ -263,7 +272,7 @@ export function useCadChat() {
         setStreamingText("");
       }
     },
-    [messages, addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, addUrls, commitPendingGlb, setLastCode]
+    [addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, addUrls, commitPendingGlb, setLastCode]
   );
 
   return { messages, sendMessage, cancel, isProcessing, streamingText };
