@@ -11,8 +11,8 @@ import {
 } from "@/store/autoSave";
 
 export default function ProjectSidebar() {
-  // Subscribe to trigger re-render on saves
   useCadStore((s) => s.projectRefreshKey);
+  const focusChatInput = useCadStore((s) => s.focusChatInput);
   const projects = getProjects();
   const activeId = getCurrentProjectId();
 
@@ -23,6 +23,7 @@ export default function ProjectSidebar() {
 
   const handleLoad = (id: string) => {
     loadProject(id);
+    focusChatInput();
   };
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
@@ -52,11 +53,15 @@ export default function ProjectSidebar() {
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -10 }}
-              className={`group flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-fog cursor-pointer transition-colors ${activeId === proj.id ? "bg-fog" : ""}`}
+              className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-colors ${
+                activeId === proj.id
+                  ? "bg-azure/10 ring-1 ring-azure/20"
+                  : "hover:bg-fog"
+              }`}
               onClick={() => handleLoad(proj.id)}
             >
               <div className="min-w-0">
-                <p className="text-body-sm text-ink font-medium truncate">{proj.name}</p>
+                <p className={`text-body-sm font-medium truncate ${activeId === proj.id ? "text-azure" : "text-ink"}`}>{proj.name}</p>
                 <p className="text-caption text-graphite">
                   {proj.msgCount} mensajes ·{" "}
                   {new Date(proj.updatedAt).toLocaleDateString("es")}

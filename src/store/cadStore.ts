@@ -33,6 +33,7 @@ interface CadStore {
   sceneBackground: string;
   pendingGlbUrl: string | null;
   projectRefreshKey: number;
+  chatInputFocusKey: number;
 
   addMessage: (msg: ChatMessage) => void;
   setProcessing: (v: boolean) => void;
@@ -50,6 +51,7 @@ interface CadStore {
   setSceneBackground: (color: string) => void;
   bumpProjectRefresh: () => void;
   clearScene: () => void;
+  focusChatInput: () => void;
 }
 
 export const useCadStore = create<CadStore>((set) => ({
@@ -75,6 +77,7 @@ export const useCadStore = create<CadStore>((set) => ({
   sceneBackground: DEFAULT_BG,
   pendingGlbUrl: null,
   projectRefreshKey: 0,
+  chatInputFocusKey: 0,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
   setProcessing: (v) => set({ isProcessing: v }),
@@ -107,6 +110,7 @@ export const useCadStore = create<CadStore>((set) => ({
     set({ sceneBackground: color });
   },
   bumpProjectRefresh: () => set((s) => ({ projectRefreshKey: s.projectRefreshKey + 1 })),
+  focusChatInput: () => set((s) => ({ chatInputFocusKey: s.chatInputFocusKey + 1 })),
   clearScene: () => set((s) => ({
     shapes: {},
     messages: [
@@ -126,5 +130,6 @@ export const useCadStore = create<CadStore>((set) => ({
     lastParams: {},
     modelColor: DEFAULT_COLOR,
     sceneBackground: DEFAULT_BG,
+    chatInputFocusKey: s.chatInputFocusKey + 1,
   })),
 }));

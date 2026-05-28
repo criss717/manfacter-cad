@@ -5,6 +5,7 @@ import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCadChat } from "./useCadChat";
 import { useSettingsStore } from "@/store/settingsStore";
+import { useCadStore } from "@/store/cadStore";
 
 const PROVIDERS = [
   { id: "deepseek", label: "DeepSeek V4 Pro" },
@@ -23,6 +24,17 @@ export default function ChatPanel() {
   const setProvider = useSettingsStore((s) => s.setProvider);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const focusKey = useCadStore((s) => s.chatInputFocusKey);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [focusKey]);
+
+  useEffect(() => {
+    if (!isProcessing) {
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [isProcessing]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -247,7 +259,6 @@ export default function ChatPanel() {
         </button>
         <input
           ref={inputRef}
-          autoFocus
           type="text"
           placeholder="Describe tu pieza o pega una imagen (Ctrl+V)..."
           disabled={isProcessing}

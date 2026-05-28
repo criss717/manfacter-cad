@@ -4,26 +4,26 @@ import { useCallback, useEffect, useState } from "react";
 import * as THREE from "three";
 
 const FACES = [
-  { id: "top",    label: "TOP",    dir: [ 0,  0,  1], cssRotate: "rotateX(0deg)",    transform: "translateZ(22px)" },
-  { id: "bottom", label: "BOTTOM", dir: [ 0,  0, -1], cssRotate: "rotateY(180deg)",  transform: "translateZ(22px)" },
-  { id: "front",  label: "FRONT",  dir: [ 0,  1,  0], cssRotate: "rotateX(-90deg)",  transform: "translateZ(22px)" },
-  { id: "back",   label: "BACK",   dir: [ 0, -1,  0], cssRotate: "rotateX(90deg)",   transform: "translateZ(22px)" },
-  { id: "right",  label: "RIGHT",  dir: [ 1,  0,  0], cssRotate: "rotateY(90deg)",   transform: "translateZ(22px)" },
-  { id: "left",   label: "LEFT",   dir: [-1,  0,  0], cssRotate: "rotateY(-90deg)",  transform: "translateZ(22px)" },
+  { id: "arriba",  label: "ARRIBA",  dir: [ 0,  0, -1], cssRotate: "rotateY(180deg)",  transform: "translateZ(22px)" },
+  { id: "abajo",   label: "ABAJO",   dir: [ 0,  0,  1], cssRotate: "rotateX(0deg)",    transform: "translateZ(22px)" },
+  { id: "frente",  label: "FRENTE",  dir: [ 0,  1,  0], cssRotate: "rotateX(-90deg)",  transform: "translateZ(22px)" },
+  { id: "atras",   label: "ATRAS",   dir: [ 0, -1,  0], cssRotate: "rotateX(90deg)",   transform: "translateZ(22px)" },
+  { id: "der",     label: "DER",     dir: [ 1,  0,  0], cssRotate: "rotateY(90deg)",   transform: "translateZ(22px)" },
+  { id: "izq",     label: "IZQ",     dir: [-1,  0,  0], cssRotate: "rotateY(-90deg)",  transform: "translateZ(22px)" },
 ];
 
-const ISO_DIR = new THREE.Vector3(0.577, 0.577, 0.577).normalize();
+const ISO_DIR = new THREE.Vector3(-0.577, -0.577, -0.577).normalize();
 
 let _cam: THREE.PerspectiveCamera | null = null;
 let _ctrl: { target: THREE.Vector3; update: () => void } | null = null;
 
 function updateFromCamera() {
   const cam = _cam;
-  if (!cam) return { face: "top", rx: -25, ry: -40 };
+  if (!cam) return { face: "abajo", rx: -25, ry: -40 };
   const dir = new THREE.Vector3();
   cam.getWorldDirection(dir).normalize();
 
-  let bestFace = "top";
+  let bestFace = "abajo";
   let bestDot = -Infinity;
   for (const face of FACES) {
     const fd = new THREE.Vector3(...face.dir).normalize();
@@ -79,14 +79,14 @@ export default function ViewCube3D() {
     cam.position.copy(t.clone().addScaledVector(dir, -dist));
 
     switch (faceId) {
-      case "top":
+      case "arriba":
         cam.up.set(0, -1, 0);
         break;
-      case "bottom":
+      case "abajo":
         cam.up.set(0, 1, 0);
         break;
-      case "front":
-      case "back":
+      case "frente":
+      case "atras":
         cam.up.set(0, 0, 1);
         break;
       default:
