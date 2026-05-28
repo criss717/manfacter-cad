@@ -17,7 +17,7 @@ def render_screenshot(model_path: Path, output_path: Path, resolution: tuple[int
         else:
             scene = trimesh.Scene(mesh)
 
-        data = scene.save_image(resolution=resolution, visible=True)
+        data = scene.save_image(resolution=resolution, visible=False)
         if isinstance(data, bytes):
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)

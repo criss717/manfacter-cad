@@ -7,19 +7,19 @@ import GearGame from "./GearGame";
 
 const NEWS_ITEMS = [
   {
-    title: "ManfacterCAD: Diseño 3D con IA generativa",
-    desc: "Transforma tus ideas en modelos CAD listos para fabricación en segundos.",
-    link: "https://manfacter.com/sobre-manfacter/",
+    title: "Manfacter gana el Premio EmprendeXXI en Cantabria",
+    desc: "Reconocida como la startup con mayor potencial de la región por CaixaBank y SODERCAN.",
+    link: "https://www.cantabria.es/web/comunicados/w/manfacter-gana-el-premio-emprendexxi-como-la-startup-con-mayor-potencial-de-cantabria",
   },
   {
-    title: "Guías de fabricación digital",
-    desc: "Aprende sobre impresión 3D, tolerancias y materiales para tus proyectos.",
-    link: "https://manfacter.com/guias-de-fabricacion/",
+    title: "Manfacter gana los Premios EmprendeXXI en Cantabria",
+    desc: "El Referente destaca a Manfacter como ganadora de los prestigiosos premios de innovación.",
+    link: "https://elreferente.es/startups/manfacter-gana-los-premios-emprendexxi-en-cantabria/",
   },
   {
-    title: "Innovación en manufactura",
-    desc: "Descubre cómo la IA está revolucionando el diseño para manufactura.",
-    link: "https://manfacter.com/sobre-manfacter/",
+    title: "Manfacter gana el Premio EmprendeXXI CaixaBank-SODERCAN",
+    desc: "El Diario Montañés cubre el galardón que reconoce el potencial innovador de Manfacter.",
+    link: "https://www.eldiariomontanes.es/economia/manfacter-gana-premio-emprendexxi-caixabank-sodercan-20260429164255-nt.html",
   },
 ];
 

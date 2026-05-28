@@ -41,7 +41,7 @@ export default function CadPage() {
         <div className="flex-1 p-4 pl-0 flex flex-col min-w-0">
           <div className="flex items-center justify-between mb-3 px-1">
             <div className="flex items-center gap-3">
-              <div className="relative w-20.5 h-8 shrink-0">
+              <div className="relative w-30 h-12 shrink-0">
                 <Image src="/logo.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="82px" />
               </div>
               <div>

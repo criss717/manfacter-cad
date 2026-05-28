@@ -19,7 +19,7 @@ _current_session_id = contextvars.ContextVar("current_session_id", default="")
 _attempt_counts: dict[str, int] = {}
 _last_model: dict[str, str] = {}
 
-MAX_CAD_ATTEMPTS = 5
+MAX_CAD_ATTEMPTS = 13
 
 
 def classify_cad_error(error: str) -> str:
@@ -165,7 +165,9 @@ def list_outputs() -> dict:
     """List generated output files from the current session only."""
     session_id = _current_session_id.get()
     current_model = _last_model.get(session_id, "")
-    model_dir = OUTPUT_DIR / current_model if current_model else OUTPUT_DIR
+    if not current_model:
+        return {"ok": True, "files": [], "session": "none"}
+    model_dir = OUTPUT_DIR / current_model
     files = []
     if model_dir.exists():
         for f in sorted(model_dir.rglob("*")):
@@ -175,7 +177,7 @@ def list_outputs() -> dict:
                     "size": f.stat().st_size,
                     "suffix": f.suffix,
                 })
-    return {"ok": True, "files": files[:50], "session": current_model or "none"}
+    return {"ok": True, "files": files[:50], "session": current_model}
 
 
 def make_snapshot(step_path: str) -> dict:

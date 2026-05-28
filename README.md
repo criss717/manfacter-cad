@@ -1,27 +1,68 @@
 # Manfacter CAD
 
-> MVP de diseño CAD 3D asistido por IA — agents, chat, visor, parámetros, exportación.  
-> Inspirado en [text-to-cad](https://github.com/earthtojake/text-to-cad) pero llevado a producto completo.
+> Diseño CAD 3D con IA generativa. Le hablas, te modela.
+> Basado en [text-to-cad](https://github.com/earthtojake/text-to-cad) pero llevado a experiencia completa de producto.
 
 ![Manfacter CAD](public/logo.png)
 
 ## Qué hace esto
 
-Escribes lo que quieres diseñar (o pegas una foto), y la IA te genera una pieza 3D real con geometría sólida, exportable a STEP, STL y GLB para fabricación. Puedes seguir chateando para modificarla: "hazla más grande", "ponle un agujero central", "redondea las esquinas". Todo en vivo, en el navegador.
+Describes la pieza que necesitas fabricar (o pegas una foto) y la IA te genera geometría 3D sólida exportable a STEP, STL y GLB. El chat es conversacional: puedes seguir pidiendo cambios como si hablaras con un ingeniero. "Más grande", "agujero central de 8mm", "redondea las aristas". Todo en vivo en el navegador.
+
+Y mientras la IA trabaja en piezas complejas, no te quedas mirando una barra de carga. Te ponemos un modal interactivo con noticias de Manfacter, enlaces a guías de fabricación y un mini juego de engranaje. Porque esperar no tiene que ser aburrido.
 
 ---
 
 ## Demo rápida
 
 ```
-Usuario: "Diseña un soporte en L de 80x60mm con base de 4mm, pared de 60mm y 2 agujeros avellanados en la base"
-→ IA genera código build123d → STEP/STL/GLB aparecen en el visor 3D
-→ Sliders muestran las cotas detectadas, puedes arrastrar para cambiar medidas
-→ Si alguna medida n ote aprece en propiedades dile en el chat que te modifique esa cota, a partir de ahi ya la verás en la barra de propiedades
-→ Exportas a STEP para SolidWorks o STL para laminador
-→ Quieres guardar este resultado y abrir un chat nuevo pues abres la seccion de proyectos y le das al botón + para iniciar un chat nuevo, vuelve al anterior cuando quieras.
+Usuario: "necesito un soporte en L de 80mm de largo, 60mm de alto, con base de 40mm de ancho, espesor 4mm y 2 agujeros avellanados en la base"
+→ IA genera el CAD → aparece en el visor 3D con iluminación de estudio
+→ Las cotas aparecen en la barra de Propiedades como sliders
+→ Arrastras un slider y la pieza se regenera al instante
+→ Si no te gusta, sigues chateando: "cambia los agujeros a 5mm"
+→ Exportas STEP para SolidWorks o STL para tu laminador
+→ Cambias de conversación en la barra lateral, vuelves cuando quieras
 
+Usuario: "diseña un conjunto de engranajes planetarios"
+→ La IA detecta que es complejo → se abre el modal "mientras esperas"
+→ Ves noticias sobre Manfacter, enlaces a guías, y un engranaje interactivo que gira con el cursor
+→ Cuando la IA termina, el modal se cierra y tu pieza aparece lista
 ```
+
+---
+
+## Lo que hace distinto a Manfacter CAD
+
+### Modal interactivo mientras esperas
+
+Cuando le pides algo complejo (engranajes, ensamblajes, barridos, hélices), la IA puede tardar varios intentos en dar con la geometría perfecta. En vez de una pantalla en blanco, aparece un modal con:
+
+- **Noticias reales** de Manfacter en un slider (Premio EmprendeXXI en Cantabria, CaixaBank, El Diario Montañés)
+- **Enlaces directos** a [Sobre Manfacter](https://manfacter.com/sobre-manfacter/) y [Guías de fabricación](https://manfacter.com/guias-de-fabricacion/)
+- **Mini juego** de engranaje: mueves el cursor sobre un engranaje SVG y gira. Simple, adictivo, temático
+
+Si quieres minimizarlo mientras tanto, se convierte en un indicador flotante. Cuando la IA termina, desaparece solo. No interrumpe tu flujo, te acompaña.
+
+### Chat con reparación inteligente
+
+El agente clasifica cada petición antes de generar código:
+- **SIMPLE** (< 8 features, solo primitivas + agujeros + filetes): genera directo, sin leer referencias
+- **COMPLEX** (engranajes, barridos, hélices, lofts, assemblies): carga documentación bajo demanda
+
+Si el código falla, el agente recibe un hint en español clasificado por tipo de error (10 categorías). Se auto-corrige y reintenta. Límite de 13 intentos por pieza, después te avisa educadamente.
+
+### Parámetros que se actualizan solos
+
+El panel de Propiedades extrae las variables del código Python generado (`base_length = 80.0`, `hole_diameter = 4.0`) y las expone como sliders. Cuando la IA modifica una cota desde el chat, los sliders se actualizan automáticamente. Si tú tocas un slider, se regenera la geometría al instante sin pasar por el chat.
+
+### Memoria conversacional real
+
+WebSocket con sesión persistente en backend. El agente mantiene todo el contexto en RAM. Si dices "añádele 2mm de filete", ya sabe qué pieza tienes, su código, sus dimensiones. No relee archivos del disco.
+
+### Multimodal: pega una foto, obtén un CAD
+
+Arrastras una imagen de una pieza real al chat (o Ctrl+V) y Gemini la analiza para generar el modelo. La imagen se codifica en base64 y se envía directamente al LLM.
 
 ---
 
@@ -29,107 +70,57 @@ Usuario: "Diseña un soporte en L de 80x60mm con base de 4mm, pared de 60mm y 2 
 
 | Característica | Manfacter CAD | text-to-cad |
 |---|---|---|
-| **Chat persistente** | Conversación viva: el LLM recuerda todo y modifica la pieza incrementalmente | El agente lee/escribe archivos, sin contexto conversacional continuo |
-| **Multimodal** | Pega una foto de una pieza real y la IA la modela | No tiene soporte de imágenes |
-| **5 proveedores LLM** | DeepSeek V4 Pro, GLM 5.1, Kimi K2.6, Gemini 3.5 Flash, GPT-4o | Depende del agente host (Claude, Codex) |
-| **Visor 3D integrado** | React Three Fiber con iluminación estudio, cubo de vistas, auto-zoom | Viewer externo vía $render skill |
-| **Parámetros interactivos** | Sliders en vivo que detectan cotas del código y regeneran la geometría | No tiene |
-| **Color y apariencia** | Cambia color del modelo y fondo de escena en tiempo real | No tiene |
-| **Exportación triple** | STEP + STL + GLB simultáneos con un solo clic | Scripts CLI separados por formato |
-| **Persistencia automática** | Conversaciones guardadas en localStorage, sidebar con historial | Archivos en disco |
-| **Repair loop inteligente** | 10 categorías de error con hints en español para auto-corrección del agente | Error → reparación manual |
-| **Validación geométrica** | Inspección automática post-generación (bbox, caras, aristas, sólidos) | Inspección vía CLI script |
-| **Agentes duales** | Google ADK (Gemini nativo) + OpenAI-compatible (DeepSeek/GLM/Kimi) | Un solo agente |
-| **Referencias progresivas** | El agente decide si leer documentación según complejidad de la pieza (SIMPLE vs COMPLEX) | Carga de referencias manual |
-| **Idioma** | Español nativo en toda la interfaz y respuestas del agente | Inglés |
-| **Snapshot visual** | Renderizado PNG del modelo para validación visual | Vía $render skill |
-| **Interfaz Apple-style** | Diseño minimalista con animaciones framer-motion, cubo de vistas CSS 3D | — |
-
----
-
-## Lo que supera a text-to-cad 
-
-### 1. Agentes con memoria conversacional real
-
-Text-to-cad delega en el agente host (Claude Code, Codex) que lee/escribe archivos. Si quieres modificar una pieza, el agente tiene que releer el archivo `.py` del disco.
-
-Manfacter CAD usa **WebSocket con sesión persistente**: el backend Python mantiene el historial completo de la conversación en RAM. Cuando dices _"añádele 2mm de filete en las aristas superiores"_, el LLM ya sabe qué pieza tienes, qué código la generó y cuáles son sus dimensiones. No relee nada.
-
-### 2. Clasificación SIMPLE vs COMPLEX
-
-El prompt del agente clasifica cada petición antes de generar código:
-
-- **SIMPLE** (< 8 features, solo Box/Cylinder/Sphere + holes + fillets): genera directo sin leer referencias → ahorra tokens
-- **COMPLEX** (engranajes, barridos, hélices, loft, assemblies): carga `build123d-modeling.md` bajo demanda → precisión sin desperdicio
-
-Text-to-cad carga referencias manualmente por trigger, pero no tiene esta clasificación automática de complejidad.
-
-### 3. Repair loop con hints en español
-
-Cuando el código falla, el agente recibe un hint clasificado:
-
-```
-ERROR: edges() y faces() son METODOS (con parentesis), no atributos.
-       Usa shape.edges() no shape.edges.
-```
-
-Hay 10 categorías de error mapeadas a hints específicos en español. El agente puede auto-corregirse en el mismo turno.
-
-### 4. Parámetros detectados y regeneración
-
-El InspectorPanel parsea el código Python generado, extrae las variables numéricas (`base_length = 80.0`, `hole_diameter = 4.0`), y las expone como sliders. Arrastras un slider → se reemplaza el valor en el código → se regenera la geometría → el visor se actualiza. No necesitas tocar código.
-
-### 5. Multimodal: pega una foto, obtén un CAD
-
-Arrastras una imagen de una pieza real al chat (o Ctrl+V). El backend la codifica en base64 y se la envía al LLM con capacidades de visión (Gemini, DeepSeek). La IA analiza la forma y genera el código build123d. Text-to-cad no tiene esta capacidad.
+| **Chat persistente** | Conversación viva con memoria completa | El agente lee/escribe archivos, sin contexto continuo |
+| **Modal mientras esperas** | Noticias, guías y mini juego de engranaje durante generaciones complejas | No tiene |
+| **Multimodal** | Imagen → CAD (Gemini nativo) | No tiene soporte de imágenes |
+| **Visor 3D integrado** | React Three Fiber con iluminación estudio, cubo de vistas, auto-zoom | Viewer externo vía $render |
+| **Parámetros interactivos** | Sliders que se auto-actualizan cuando la IA cambia cotas | No tiene |
+| **Color y apariencia** | Cambia color del modelo y fondo en tiempo real | No tiene |
+| **Exportación triple** | STEP + STL + GLB simultáneos, un clic | Scripts CLI separados |
+| **Persistencia** | Conversaciones en localStorage, sidebar con historial, confirmación al cambiar de chat | Archivos en disco |
+| **Repair loop** | 10 categorías de error con hints en español, hasta 13 reintentos | Reparación manual |
+| **Validación geométrica** | Inspección post-generación (bbox, caras, aristas, sólidos) | CLI separado |
+| **Confirmación al cambiar de chat** | Modal "¿Abandonar el chat?" si la IA está procesando | No tiene |
+| **Snapshot visual** | Render PNG para validación visual | Vía $render skill |
+| **Idioma** | Español nativo en toda la interfaz | Inglés |
+| **Diseño** | Apple-style minimalista con animaciones framer-motion | — |
 
 ---
 
 ## Arquitectura
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Frontend (Next.js 16, React 19, TypeScript)        │
-│  ┌──────────┐ ┌───────────┐ ┌──────────────────┐   │
-│  │ ChatPanel│ │Inspector  │ │ CadExplorer (R3F) │   │
-│  │ (IA chat)│ │(sliders)  │ │ (visor 3D + cube) │   │
-│  └────┬─────┘ └─────┬─────┘ └────────┬─────────┘   │
-│       │              │               │              │
-│       │  Zustand Store (estado global + localStorage)│
-│       │              │               │              │
-├───────┼──────────────┼───────────────┼──────────────┤
-│       ▼              ▼               ▼              │
-│  Backend Python (FastAPI + WebSocket + ADK)         │
-│  ┌──────────────────────────────────────────────┐   │
-│  │  agent/server.py (WS :8002) — Gemini ADK     │   │
-│  │  agent/openai_server.py (WS :8003) — DeepSeek│   │
-│  │  main.py (HTTP :8000) — FastAPI REST         │   │
-│  │                                              │   │
-│  │  agent/tools.py                              │   │
-│  │  ├─ run_cad_code() → generator.py            │   │
-│  │  ├─ inspect_geometry() → inspect.py          │   │
-│  │  ├─ read_reference() → references/*.md       │   │
-│  │  └─ make_snapshot() → screenshot.py          │   │
-│  │                                              │   │
-│  │  cad_engine/generator.py                     │   │
-│  │  ├─ build123d → STEP (XCAF, colores)         │   │
-│  │  ├─ OCP StlAPI → STL (binario)               │   │
-│  │  └─ BRepMesh + trimesh → GLB (visor)        │   │
-│  └──────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Frontend (Next.js 16, React 19, TypeScript)                │
+│  ┌──────────┐ ┌───────────┐ ┌───────────┐ ┌────────────┐  │
+│  │ ChatPanel│ │Inspector  │ │CadExplorer│ │ComplexModal│  │
+│  │ (IA chat)│ │(sliders)  │ │(visor R3F)│ │(noticias + │  │
+│  │          │ │           │ │           │ │ juego)     │  │
+│  └────┬─────┘ └─────┬─────┘ └─────┬─────┘ └─────┬──────┘  │
+│       │              │             │             │          │
+│       │    Zustand Store (estado global + localStorage)    │
+│       │              │             │             │          │
+├───────┼──────────────┼─────────────┼─────────────┼──────────┤
+│       ▼              ▼             ▼             ▼          │
+│  Backend Python (FastAPI + WebSocket + Google ADK)          │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  agent/server.py (WS :8002) — Gemini ADK             │   │
+│  │  main.py (HTTP :8000) — FastAPI REST                 │   │
+│  │                                                      │   │
+│  │  agent/tools.py                                      │   │
+│  │  ├─ run_cad_code() → generator.py (límite 13 intentos)│  │
+│  │  ├─ inspect_geometry() → inspect.py                  │   │
+│  │  ├─ read_reference() → references/*.md               │   │
+│  │  ├─ make_snapshot() → screenshot.py                  │   │
+│  │  └─ list_outputs() → solo sesión actual              │   │
+│  │                                                      │   │
+│  │  cad_engine/generator.py                             │   │
+│  │  ├─ build123d → STEP (XCAF, colores)                 │   │
+│  │  ├─ OCP StlAPI → STL (binario)                       │   │
+│  │  └─ BRepMesh + trimesh → GLB (visor)                │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
 ```
-
-### Flujo de una petición
-
-1. Usuario escribe en el chat → `useCadChat` envía por WebSocket al agente (:8002 o :8003)
-2. El agente (LLM) recibe el prompt + herramientas disponibles
-3. Decide si leer referencias (`read_reference`)
-4. Genera código Python build123d y llama a `run_cad_code(code)`
-5. `generator.py` compila el código, ejecuta `gen_step()`, exporta STEP/STL/GLB
-6. El agente recibe URLs + geometría facts + inspecciona con `inspect_geometry`
-7. El frontend recibe las URLs vía WebSocket → `CadExplorer` carga el GLB en el visor 3D
-8. `InspectorPanel` extrae parámetros del código y muestra sliders
-9. `autoSave.ts` persiste todo en localStorage
 
 ---
 
@@ -141,16 +132,16 @@ Arrastras una imagen de una pieza real al chat (o Ctrl+V). El backend la codific
 - React Three Fiber + Drei (visor 3D)
 - Zustand (estado global)
 - Framer Motion (animaciones)
-- Tailwind CSS 4 (Apple Design System)
-- Drizzle ORM + PostgreSQL (persistencia opcional)
+- Tailwind CSS 4 (Apple Design System con Comfortaa)
+- next/font/google (Comfortaa)
 
 **Backend**
 - Python 3.11 + FastAPI + Uvicorn
 - build123d 0.8+ (modelado CAD paramétrico)
 - OpenCASCADE (kernel geométrico)
-- Google ADK (agentes Gemini)
-- OpenAI SDK (DeepSeek, GLM, Kimi via OpenCode)
+- Google ADK (agente Gemini 3.5 Flash)
 - trimesh + Pillow (mallas y snapshots)
+- websockets (comunicación en tiempo real)
 
 ---
 
@@ -159,33 +150,32 @@ Arrastras una imagen de una pieza real al chat (o Ctrl+V). El backend la codific
 ### Requisitos
 - Node.js 20+ y pnpm
 - Python 3.11+ con virtualenv
-- Claves API (`.env`)
+- API key de Gemini (`.env`)
 
 ### Setup
 
 ```bash
-# 1. Frontend
+# 1. Clonar e instalar frontend
+git clone https://github.com/tu-usuario/manfacter-cad
 cd manfacter-cad
 pnpm install
-cp .env.example .env  # editar con tus API keys
 
-# 2. Backend (usa el venv existente en text-to-cad/venv)
-cd ../text-to-cad
+# 2. Backend
+cd backend
+python -m venv venv
 venv\Scripts\activate  # Windows
-pip install -r ../manfacter-cad/backend/requirements.txt
+# source venv/bin/activate  # macOS/Linux
+pip install -r requirements.txt
 
-# 3. Arrancar servidores
-# Terminal 1 — FastAPI (archivos estáticos y API generate)
-python manfacter-cad/backend/main.py
+# 3. Configurar .env
+cp ../.env.local.example ../.env
+# Añade tu GOOGLE_GENERATIVE_AI_API_KEY
 
-# Terminal 2 — Agente Gemini
-python manfacter-cad/backend/agent/server.py
+# 4. Arrancar
+# Terminal 1 — Agente Gemini
+python -m agent.server
 
-# Terminal 3 — Agente OpenAI-compatible (DeepSeek/GLM/Kimi)
-python manfacter-cad/backend/agent/openai_server.py
-
-# Terminal 4 — Frontend
-cd manfacter-cad
+# Terminal 2 — Frontend (desde la raíz del proyecto)
 pnpm dev
 ```
 
@@ -194,40 +184,40 @@ Abre `http://localhost:3000/cad` y empieza a diseñar.
 ### Variables de entorno (`.env`)
 
 ```
-GOOGLE_GENERATIVE_AI_API_KEY=...
-OPENCODE_API_KEY=...
-OPENAI_API_KEY=...
+GOOGLE_GENERATIVE_AI_API_KEY=tu_clave_de_gemini
 ```
-
-El selector de proveedor en el chat te permite cambiar entre DeepSeek, GLM, Kimi, Gemini y GPT-4o en caliente.
 
 ---
 
 ## Lo que se puede hacer ahora
 
 - [x] Generar piezas 3D desde texto en español
-- [x] Pegar/arrastrar fotos de piezas reales para modelarlas
+- [x] Pegar/arrastrar fotos de piezas reales para modelarlas (Gemini)
 - [x] Chatear con la IA para modificar la pieza incrementalmente
 - [x] Ver la pieza en 3D con iluminación estudio y cubo de vistas
-- [x] Ajustar cotas con sliders (regeneración automática)
+- [x] Ajustar cotas con sliders que se actualizan automáticamente
+- [x] Modal interactivo mientras esperas (noticias, guías, mini juego)
+- [x] Mini juego de engranaje interactivo con el cursor
+- [x] Noticias reales de Manfacter en slider (Premio EmprendeXXI)
 - [x] Cambiar color del modelo y fondo de escena
-- [x] Exportar a STEP (SolidWorks, Fusion), STL (impresión 3D) y GLB
-- [x] Cambiar de proveedor LLM en caliente
+- [x] Exportar a STEP, STL y GLB
 - [x] Guardar/recuperar conversaciones automáticamente
+- [x] Confirmación al cambiar de chat si la IA está procesando
 - [x] Inspección geométrica post-generación
 - [x] Snapshot PNG para validación visual
-- [x] Clasificación automática SIMPLE/COMPLEX con referencias progresivas
-- [x] Repair loop con hints de error en español
+- [x] Clasificación SIMPLE/COMPLEX con referencias progresivas
+- [x] Repair loop con 10 categorías de error en español (hasta 13 intentos)
+- [x] Interfaz Apple-style con Comfortaa
+- [x] Marca Manfacter (#003496) en títulos y Studio
 
 ## Roadmap
 
-- [ ] Autenticación de usuarios (login ya esbozado)
-- [ ] Persistencia en PostgreSQL (esquema Drizzle ya creado)
-- [ ] Snapshots visuales enviadas al LLM para auto-validación multimodal
+- [ ] Más proveedores LLM (DeepSeek, GLM, Kimi, GPT-4o)
+- [ ] Autenticación de usuarios
+- [ ] Persistencia en PostgreSQL
+- [ ] Slider de noticias desde API de Manfacter (dinámico)
 - [ ] Exportación DXF para corte láser
-- [ ] Ensamblajes multi-parte
-- [ ] Animación de parámetros
-- [ ] Renderizado server-side de snapshots para SEO
+- [ ] Snapshots enviadas al LLM para auto-validación multimodal
 - [ ] Modo oscuro
 - [ ] Undo/redo de modificaciones
 
