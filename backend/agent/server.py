@@ -6,10 +6,13 @@ import asyncio
 import base64
 import json
 import sys
+import warnings
 from pathlib import Path
 import signal
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+warnings.filterwarnings("ignore", message=".*EXPERIMENTAL.*")
 
 import websockets
 from websockets.asyncio.server import serve
@@ -17,6 +20,7 @@ from websockets.asyncio.server import serve
 from google.adk import Runner
 from google.adk.sessions import InMemorySessionService
 from agent.agent import cad_agent
+from agent.tools import _current_session_id, _attempt_counts
 
 def handler(signum, frame):
     print(f"[AGENT] Signal {signum} received, shutting down.")
@@ -183,8 +187,10 @@ async def agent_session(websocket):
 
         msg_counter += 1
         uid = f"user_{client}"
-        # Reuse session for conversation continuity
         sid = client_sid
+
+        _current_session_id.set(sid)
+        _attempt_counts[sid] = 0
 
         print(f"[AGENT] MESSAGE #{msg_counter} (session={sid[:12]}): {user_text[:80]}...")
 

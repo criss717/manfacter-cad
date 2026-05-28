@@ -122,7 +122,7 @@ export default function ChatPanel() {
           <select
             value={provider}
             onChange={(e) => setProvider(e.target.value as typeof provider)}
-            className="h-8 rounded-lg bg-fog border border-silver-mist text-caption text-ink px-2 focus:outline-none focus:border-azure/50 cursor-pointer disabled:text-graphite/50"
+            className="h-8 rounded-lg w-32.5 ml-2 bg-fog border border-silver-mist text-caption text-ink px-2 focus:outline-none focus:border-azure/50 cursor-pointer disabled:text-graphite/50"
           >
             {PROVIDERS.map((p) => (
               <option key={p.id} value={p.id} disabled={p.disabled}>{p.label}</option>

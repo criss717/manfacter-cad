@@ -45,7 +45,7 @@ export default function CadPage() {
                 <Image src="/logo.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="82px" />
               </div>
               <div>
-                <h1 className="text-heading-sm font-bold text-ink tracking-tight">Studio</h1>
+              <h1 className="text-heading-sm font-bold text-manfacter tracking-tight">Studio</h1>
                 <p className="text-caption text-graphite -mt-0.5">Describe tu pieza para empezar</p>
               </div>
             </div>
@@ -102,7 +102,7 @@ export default function CadPage() {
               <Image src="/logo.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="72px" />
             </div>
             <div className="hidden lg:block">
-              <h1 className="text-heading-sm font-bold text-ink tracking-tight">Studio</h1>
+              <h1 className="text-heading-sm font-bold text-[#1848a3] tracking-tight">Studio</h1>
               <p className="text-caption text-graphite -mt-0.5">
                 {glbUrl ? "Modelo cargado" : "Describe tu pieza para empezar"}
               </p>

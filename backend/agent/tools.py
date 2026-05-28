@@ -5,6 +5,7 @@ ManfacterCAD Agent Tools — custom tools for the ADK agent.
 import sys
 import uuid
 import io
+import contextvars
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -12,6 +13,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 REFERENCES_DIR = Path(__file__).parent.parent / "references"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+_current_session_id = contextvars.ContextVar("current_session_id", default="")
+
+_attempt_counts: dict[str, int] = {}
+_last_model: dict[str, str] = {}
+
+MAX_CAD_ATTEMPTS = 5
 
 
 def classify_cad_error(error: str) -> str:
@@ -58,12 +66,25 @@ def run_cad_code(code: str) -> str:
     import json as _json
     from cad_engine.generator import generate_cad
 
+    session_id = _current_session_id.get()
+    if session_id:
+        count = _attempt_counts.get(session_id, 0) + 1
+        _attempt_counts[session_id] = count
+        if count > MAX_CAD_ATTEMPTS:
+            return _json.dumps({
+                "ok": False,
+                "error": "MAX_ATTEMPTS_EXCEEDED",
+                "hint": "Has excedido los 5 intentos máximos permitidos. Informa al usuario que no fue posible generar la pieza y sugiere intentar con una descripción más simple o más tarde.",
+                "model_id": "limit_exceeded",
+            })
+
     old_stdout = sys.stdout
     sys.stdout = io.StringIO()
 
     try:
         mid = uuid.uuid4().hex[:12]
         result = generate_cad(code, mid)
+        _last_model[session_id] = mid
     finally:
         captured = sys.stdout.getvalue()
         sys.stdout = old_stdout
@@ -119,6 +140,13 @@ def read_reference(name: str) -> str:
     clean_name = name.replace("\\", "/")
     
     if "_script.py" in clean_name:
+        session_id = _current_session_id.get()
+        current_model = _last_model.get(session_id, "")
+        if current_model:
+            parts = clean_name.strip("/").split("/")
+            model_dir = parts[0] if len(parts) > 0 else ""
+            if model_dir != current_model:
+                return f"No puedes leer scripts de otras sesiones. Solo puedes leer el script actual: {current_model}/_script.py"
         path = OUTPUT_DIR / clean_name
     else:
         path = REFERENCES_DIR / clean_name
@@ -134,16 +162,20 @@ def read_reference(name: str) -> str:
 
 
 def list_outputs() -> dict:
-    """List all generated output files."""
+    """List generated output files from the current session only."""
+    session_id = _current_session_id.get()
+    current_model = _last_model.get(session_id, "")
+    model_dir = OUTPUT_DIR / current_model if current_model else OUTPUT_DIR
     files = []
-    for f in sorted(OUTPUT_DIR.rglob("*")):
-        if f.is_file():
-            files.append({
-                "name": str(f.relative_to(OUTPUT_DIR)),
-                "size": f.stat().st_size,
-                "suffix": f.suffix,
-            })
-    return {"ok": True, "files": files[:50]}
+    if model_dir.exists():
+        for f in sorted(model_dir.rglob("*")):
+            if f.is_file():
+                files.append({
+                    "name": str(f.relative_to(OUTPUT_DIR)),
+                    "size": f.stat().st_size,
+                    "suffix": f.suffix,
+                })
+    return {"ok": True, "files": files[:50], "session": current_model or "none"}
 
 
 def make_snapshot(step_path: str) -> dict:

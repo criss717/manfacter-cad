@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
 import { autoSaveConversation, updateProjectColors } from "@/store/autoSave";
@@ -106,6 +106,11 @@ export default function InspectorPanel() {
 
   const allParams = useMemo(() => lastCode ? extractAllParams(lastCode) : {}, [lastCode]);
   const paramEntries = Object.entries(allParams).filter(([, v]) => typeof v === "number");
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDragValues({});
+  }, [lastCode]);
 
   const paramMax = (v: number) => v > 100 ? v * 2 : v > 10 ? v * 3 : v * 4;
   const paramMin = (v: number) => v > 100 ? v * 0.25 : v > 10 ? v * 0.1 : v * 0.2;

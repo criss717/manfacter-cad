@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Comfortaa } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const comfortaa = Comfortaa({
   subsets: ["latin"],
   display: "swap",
+  weight: ["300", "400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -25,7 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={`${inter.className} h-full`} suppressHydrationWarning>
+    <html lang="es" className={`${comfortaa.className} h-full`} suppressHydrationWarning>
       <body className="min-h-full bg-fog text-ink antialiased">
         {children}
       </body>

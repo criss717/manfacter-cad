@@ -17,7 +17,7 @@ export default function HomePage() {
           <div className="relative w-30 h-12">
             <Image src="/logo.png" alt="Manfacter" fill className="rounded-md object-contain" sizes="120px" />
           </div>
-          <span className="text-display text-[1.25rem] font-semibold text-ink tracking-tight hidden sm:block">Studio</span>
+          <span className="text-display text-[1.25rem] font-semibold text-manfacter tracking-tight hidden sm:block">Studio</span>
         </div>
         <Link
           href="/cad"
@@ -53,7 +53,7 @@ export default function HomePage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.4, delay: 0.5 }}
-            className="text-subheading font-semibold text-ink tracking-tight mb-3"
+            className="text-subheading font-semibold text-manfacter tracking-tight mb-3"
           >
             Diseño 3D con IA para fabricación
           </motion.p>
@@ -62,7 +62,7 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.6, ease: [0.25, 0.1, 0.25, 1] }}
-            className="text-display font-bold text-[3rem] text-ink tracking-[-0.022em] leading-[1.04] mb-6"
+            className="text-display font-bold text-[3rem] text-manfacter tracking-[-0.022em] leading-[1.04] mb-6"
           >
             Crea piezas
             <br />
