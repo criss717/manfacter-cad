@@ -27,6 +27,7 @@ export function useCadChat() {
   const setStlUrl = useCadStore((s) => s.setStlUrl);
   const setLastCode = useCadStore((s) => s.setLastCode);
   const lastCode = useCadStore((s) => s.lastCode);
+  const resetSessionKey = useCadStore((s) => s.resetSessionKey);
   const provider = useSettingsStore((s) => s.provider);
   const [streamingText, setStreamingText] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
@@ -215,6 +216,17 @@ export function useCadChat() {
       firstMessageRef.current = true;
     };
   }, []);
+
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.close(); } catch {}
+    }
+    wsRef.current = null;
+    sessionIdRef.current = "";
+    firstMessageRef.current = true;
+    doneRef.current = true;
+  }, [resetSessionKey]);
 
   return { messages, sendMessage, cancel, isProcessing, streamingText };
 }

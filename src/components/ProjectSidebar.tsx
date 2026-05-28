@@ -13,16 +13,19 @@ import {
 export default function ProjectSidebar({ onClose }: { onClose?: () => void }) {
   useCadStore((s) => s.projectRefreshKey);
   const focusChatInput = useCadStore((s) => s.focusChatInput);
+  const bumpResetSession = useCadStore((s) => s.bumpResetSession);
   const projects = getProjects();
   const activeId = getCurrentProjectId();
 
   const handleNew = () => {
     newConversation();
+    bumpResetSession();
     useCadStore.getState().clearScene();
   };
 
   const handleLoad = (id: string) => {
     loadProject(id);
+    bumpResetSession();
     focusChatInput();
   };
 

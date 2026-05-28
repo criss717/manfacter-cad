@@ -7,7 +7,7 @@
 
 ## Qué hace esto
 
-Escribes en español lo que quieres diseñar (o pegas una foto), y la IA te genera una pieza 3D real con geometría sólida, exportable a STEP, STL y GLB para fabricación. Puedes seguir chateando para modificarla: "hazla más grande", "ponle un agujero central", "redondea las esquinas". Todo en vivo, en el navegador.
+Escribes lo que quieres diseñar (o pegas una foto), y la IA te genera una pieza 3D real con geometría sólida, exportable a STEP, STL y GLB para fabricación. Puedes seguir chateando para modificarla: "hazla más grande", "ponle un agujero central", "redondea las esquinas". Todo en vivo, en el navegador.
 
 ---
 
@@ -17,7 +17,10 @@ Escribes en español lo que quieres diseñar (o pegas una foto), y la IA te gene
 Usuario: "Diseña un soporte en L de 80x60mm con base de 4mm, pared de 60mm y 2 agujeros avellanados en la base"
 → IA genera código build123d → STEP/STL/GLB aparecen en el visor 3D
 → Sliders muestran las cotas detectadas, puedes arrastrar para cambiar medidas
+→ Si alguna medida n ote aprece en propiedades dile en el chat que te modifique esa cota, a partir de ahi ya la verás en la barra de propiedades
 → Exportas a STEP para SolidWorks o STL para laminador
+→ Quieres guardar este resultado y abrir un chat nuevo pues abres la seccion de proyectos y le das al botón + para iniciar un chat nuevo, vuelve al anterior cuando quieras.
+
 ```
 
 ---
@@ -44,7 +47,7 @@ Usuario: "Diseña un soporte en L de 80x60mm con base de 4mm, pared de 60mm y 2 
 
 ---
 
-## Lo que supera a text-to-cad (detalle técnico)
+## Lo que supera a text-to-cad 
 
 ### 1. Agentes con memoria conversacional real
 

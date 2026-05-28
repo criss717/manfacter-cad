@@ -14,7 +14,9 @@ export default function HomePage() {
         className="h-20 flex items-center justify-between px-5 bg-fog/80 backdrop-blur-md border-b border-silver-mist sticky top-0 z-50"
       >
         <div className="flex items-center gap-3">
-          <Image src="/logo_palacin.png" alt="Manfacter" width={120} height={48} className="rounded-md object-contain" />
+          <div className="relative w-30 h-12">
+            <Image src="/logo_palacin.png" alt="Manfacter" fill className="rounded-md object-contain" sizes="120px" />
+          </div>
           <span className="text-display text-[1.25rem] font-semibold text-ink tracking-tight hidden sm:block">Studio</span>
         </div>
         <Link
