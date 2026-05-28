@@ -73,3 +73,26 @@ body {
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "cv01", "cv03", "cv04", "cv10", "cv11";
 }
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c7c7cc;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #aeaeb2;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c7c7cc transparent;
+}

@@ -15,12 +15,14 @@ import Image from "next/image";
 export default function CadPage() {
   const glbUrl = useCadStore((s) => s.glbUrl);
   const [mounted, setMounted] = useState(false);
-  const [showProjects, setShowProjects] = useState(true);
-  const [showInspector, setShowInspector] = useState(true);
+  const [showProjects, setShowProjects] = useState(false);
+  const [showInspector, setShowInspector] = useState(false);
 
   useEffect(() => {
     const id = setTimeout(() => {
       setMounted(true);
+      setShowProjects(window.innerWidth >= 1040);
+      setShowInspector(window.innerWidth >= 1270);
     }, 0);
     return () => clearTimeout(id);
   }, []);
@@ -62,7 +64,7 @@ export default function CadPage() {
             transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
             className="shrink-0 overflow-hidden p-4 pr-0"
           >
-            <ProjectSidebar />
+            <ProjectSidebar onClose={() => setShowProjects(false)} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -86,7 +88,7 @@ export default function CadPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowProjects(!showProjects)}
-              className="w-9 h-9 cursor-pointer rounded-xl bg-snow flex items-center justify-center hover:bg-silver-mist/50 transition-colors"
+              className="w-9 h-9 cursor-pointer border-blue-400 border-2 rounded-xl bg-snow flex items-center justify-center hover:bg-silver-mist/50 transition-colors"
               title="Proyectos"
             >
               <svg className="w-4 h-4 text-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -94,7 +96,7 @@ export default function CadPage() {
               </svg>
             </button>
             <Image src="/logo_palacin.png" alt="Manfacter" width={72} height={28} className="rounded-lg object-contain" />
-            <div>
+            <div className="hidden lg:block">
               <h1 className="text-heading-sm font-bold text-ink tracking-tight">Studio</h1>
               <p className="text-caption text-graphite -mt-0.5">
                 {glbUrl ? "Modelo cargado" : "Describe tu pieza para empezar"}

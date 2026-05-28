@@ -15,7 +15,7 @@ export default function HomePage() {
       >
         <div className="flex items-center gap-3">
           <Image src="/logo_palacin.png" alt="Manfacter" width={120} height={48} className="rounded-md object-contain" />
-          <span className="text-display text-[1.25rem] font-semibold text-ink tracking-tight">Studio</span>
+          <span className="text-display text-[1.25rem] font-semibold text-ink tracking-tight hidden sm:block">Studio</span>
         </div>
         <Link
           href="/cad"

@@ -10,7 +10,7 @@ import {
   getCurrentProjectId,
 } from "@/store/autoSave";
 
-export default function ProjectSidebar() {
+export default function ProjectSidebar({ onClose }: { onClose?: () => void }) {
   useCadStore((s) => s.projectRefreshKey);
   const focusChatInput = useCadStore((s) => s.focusChatInput);
   const projects = getProjects();
@@ -34,15 +34,28 @@ export default function ProjectSidebar() {
 
   return (
     <div className="flex flex-col h-full bg-snow rounded-3xl overflow-hidden">
-      <div className="px-6 py-4 border-b border-silver-mist flex items-center justify-between">
+      <div className="px-4 py-4 border-b border-silver-mist flex items-center justify-between">
         <h2 className="text-body-sm font-semibold text-ink">Conversaciones</h2>
-        <button
-          onClick={handleNew}
-          className="w-8 h-8 cursor-pointer rounded-full bg-azure text-snow flex items-center justify-center hover:bg-cobalt-link transition-colors text-sm"
-          title="Nueva conversacion"
-        >
-          +
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleNew}
+            className="w-7 h-7 cursor-pointer rounded-full bg-azure text-snow flex items-center justify-center hover:bg-cobalt-link transition-colors text-sm"
+            title="Nueva conversacion"
+          >
+            +
+          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="w-7 h-7 cursor-pointer rounded-full bg-fog text-graphite flex items-center justify-center hover:bg-silver-mist transition-colors"
+              title="Ocultar proyectos"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
