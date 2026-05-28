@@ -2,7 +2,7 @@
 
 import { useEffect, Suspense } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
-import { OrbitControls, Environment, useGLTF, ContactShadows } from "@react-three/drei";
+import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { motion } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
@@ -29,23 +29,12 @@ function AutoZoom() {
   return null;
 }
 
-function FloorPlane() {
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.05, 0]} receiveShadow>
-      <planeGeometry args={[400, 400]} />
-      <shadowMaterial transparent opacity={0.08} />
-    </mesh>
-  );
-}
-
 function GlbModel({ url, color }: { url: string; color: string }) {
   const { scene } = useGLTF(url);
   useEffect(() => {
     if (scene) {
       scene.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
           const mat = child.material as THREE.MeshStandardMaterial;
           if (mat) {
             mat.roughness = 0.35;
@@ -76,29 +65,15 @@ export default function CadExplorer() {
     >
       <Canvas
         key={glbUrl || "empty"}
-        camera={{ position: [120, 80, 120], fov: 50, near: 0.1, far: 5000 }}
+        camera={{ position: [120, 80, 120], fov: 50, near: 0.1, far: 5000, up: [0, 0, 1] }}
         gl={{ antialias: true, preserveDrawingBuffer: true }}
         style={{ background: sceneBackground }}
-        shadows
       >
-        <hemisphereLight intensity={0.4} groundColor="#d1d1d6" />
-        <ambientLight intensity={0.3} />
-        <directionalLight
-          position={[60, 100, 80]}
-          intensity={0.9}
-          castShadow
-          shadow-mapSize-width={1024}
-          shadow-mapSize-height={1024}
-          shadow-camera-far={500}
-          shadow-camera-left={-100}
-          shadow-camera-right={100}
-          shadow-camera-top={100}
-          shadow-camera-bottom={-100}
-        />
-        <directionalLight position={[-40, 30, -20]} intensity={0.25} />
-        <directionalLight position={[0, 20, -80]} intensity={0.15} />
-
-        <FloorPlane />
+        <hemisphereLight intensity={0.5} groundColor="#b0b0b4" />
+        <ambientLight intensity={0.4} />
+        <directionalLight position={[60, 80, 100]} intensity={1.0} />
+        <directionalLight position={[-50, 30, -40]} intensity={0.3} />
+        <directionalLight position={[0, 20, -80]} intensity={0.2} />
 
         <Environment preset="studio" background={false} />
 
@@ -108,14 +83,6 @@ export default function CadExplorer() {
             <AutoZoom />
           </Suspense>
         )}
-
-        <ContactShadows
-          position={[0, -0.04, 0]}
-          opacity={0.15}
-          scale={150}
-          blur={2.5}
-          far={10}
-        />
 
         <OrbitControls
           ref={syncViewCube}

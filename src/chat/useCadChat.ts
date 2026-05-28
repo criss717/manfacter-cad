@@ -13,6 +13,7 @@ const PROGRESS: Record<string, string> = {
   read_reference: "Consultando documentacion...",
   run_cad_code: "Generando geometria 3D...",
   inspect_geometry: "Verificando medidas...",
+  make_snapshot: "Renderizando vista previa...",
   list_outputs: "Listando archivos...",
 };
 
@@ -25,11 +26,13 @@ export function useCadChat() {
   const setStepUrl = useCadStore((s) => s.setStepUrl);
   const setStlUrl = useCadStore((s) => s.setStlUrl);
   const setLastCode = useCadStore((s) => s.setLastCode);
+  const lastCode = useCadStore((s) => s.lastCode);
   const provider = useSettingsStore((s) => s.provider);
   const [streamingText, setStreamingText] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string>("");
   const doneRef = useRef(false);
+  const firstMessageRef = useRef(true);
 
   const cancel = useCallback(() => {
     doneRef.current = true;
@@ -39,6 +42,7 @@ export function useCadChat() {
     }
     wsRef.current = null;
     sessionIdRef.current = "";
+    firstMessageRef.current = true;
     setProcessing(false);
     setStreamingText("");
   }, [setProcessing]);
@@ -61,6 +65,7 @@ export function useCadChat() {
         ws.onerror = () => { clearTimeout(t); reject(new Error("connection")); };
       });
       wsRef.current = ws;
+      firstMessageRef.current = true;
       if (!sessionIdRef.current) sessionIdRef.current = `sid_${Date.now()}`;
       return ws;
     } catch {
@@ -69,6 +74,18 @@ export function useCadChat() {
     }
   }, [getAgentUrl]);
 
+  const buildEnrichedMessage = useCallback((content: string): string => {
+    if (firstMessageRef.current && lastCode) {
+      firstMessageRef.current = false;
+      const userMessages = messages.filter((m) => m.role === "user");
+      if (userMessages.length >= 1) {
+        return `Actualmente tienes esta pieza CAD generada:\n\`\`\`python\n${lastCode}\n\`\`\`\n\nAhora el usuario pide: ${content}`;
+      }
+    }
+    firstMessageRef.current = false;
+    return content;
+  }, [lastCode, messages]);
+
   const sendMessage = useCallback(
     async (content: string, imageBase64?: string) => {
       if (isProcessing) return;
@@ -76,6 +93,7 @@ export function useCadChat() {
       setProcessing(true);
       setStreamingText("Conectando...");
 
+      const enriched = buildEnrichedMessage(content);
       const userMsg: ChatMessage = { id: `msg_${Date.now()}`, role: "user", content, timestamp: Date.now(), image: imageBase64 };
       addMessage(userMsg);
 
@@ -91,7 +109,7 @@ export function useCadChat() {
         }
 
         setStreamingText("Analizando...");
-        ws.send(JSON.stringify({ message: content, image: imageBase64 || null, session_id: sessionIdRef.current }));
+        ws.send(JSON.stringify({ message: enriched, image: imageBase64 || null, session_id: sessionIdRef.current }));
 
         await new Promise<void>((resolve) => {
           let done = false;
@@ -185,16 +203,16 @@ export function useCadChat() {
         autoSaveConversation();
       }
     },
-    [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, ensureConnection]
+    [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, ensureConnection, buildEnrichedMessage]
   );
 
-  // Close WebSocket on unmount (page navigation)
   useEffect(() => {
     return () => {
       const ws = wsRef.current;
       if (ws) { try { ws.close(); } catch {} }
       wsRef.current = null;
       sessionIdRef.current = "";
+      firstMessageRef.current = true;
     };
   }, []);
 

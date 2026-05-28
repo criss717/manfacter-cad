@@ -8,6 +8,7 @@ import base64
 import json
 import os
 import sys
+import time
 from pathlib import Path
 import signal
 
@@ -36,7 +37,7 @@ import websockets
 from websockets.asyncio.server import serve
 from openai import AsyncOpenAI
 
-from agent.tools import run_cad_code, inspect_geometry, read_reference, list_outputs
+from agent.tools import run_cad_code, inspect_geometry, read_reference, list_outputs, make_snapshot
 from agent.prompt import CAD_AGENT_PROMPT
 
 env_file = Path(__file__).parent.parent.parent / ".env"
@@ -92,6 +93,20 @@ TOOLS = [
             "parameters": {"type": "object", "properties": {}}
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "make_snapshot",
+            "description": "Render a PNG screenshot of a generated model for visual inspection.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "step_path": {"type": "string", "description": "Path to .step file (e.g. 'abc123/abc123.step')"}
+                },
+                "required": ["step_path"]
+            }
+        }
+    },
 ]
 
 TOOL_MAP = {
@@ -99,6 +114,7 @@ TOOL_MAP = {
     "inspect_geometry": lambda args: json.dumps(inspect_geometry(args["step_path"]), default=str),
     "read_reference": lambda args: read_reference(args["name"]),
     "list_outputs": lambda args: json.dumps(list_outputs(), default=str),
+    "make_snapshot": lambda args: json.dumps(make_snapshot(args["step_path"]), default=str),
 }
 
 MODEL_MAP = {
@@ -109,6 +125,21 @@ MODEL_MAP = {
 
 
 SESSIONS = {}
+SESSION_LAST_ACCESS = {}
+SESSION_TTL = 3600
+
+
+async def _cleanup_sessions_loop():
+    while True:
+        await asyncio.sleep(600)
+        now = time.time()
+        expired = [sid for sid, ts in SESSION_LAST_ACCESS.items() if now - ts > SESSION_TTL]
+        for sid in expired:
+            SESSIONS.pop(sid, None)
+            SESSION_LAST_ACCESS.pop(sid, None)
+        if expired:
+            print(f"[OPENAI] Cleaned {len(expired)} expired sessions, {len(SESSIONS)} remaining")
+
 
 async def process_user_message(websocket, user_text: str, provider: str, session_id: str, image_data: str | None = None):
     model_name = MODEL_MAP.get(provider, "glm-5.1")
@@ -122,6 +153,7 @@ async def process_user_message(websocket, user_text: str, provider: str, session
 
     if session_id not in SESSIONS:
         SESSIONS[session_id] = [{"role": "system", "content": CAD_AGENT_PROMPT}]
+    SESSION_LAST_ACCESS[session_id] = time.time()
 
     messages = SESSIONS[session_id]
 
@@ -293,8 +325,10 @@ async def agent_session(websocket):
 async def main():
     port = 8003
     print(f"[OPENAI] Agent server starting on ws://127.0.0.1:{port}")
+    cleanup_task = asyncio.create_task(_cleanup_sessions_loop())
     async with serve(agent_session, "127.0.0.1", port) as server:
         await server.serve_forever()
+    cleanup_task.cancel()
 
 
 if __name__ == "__main__":

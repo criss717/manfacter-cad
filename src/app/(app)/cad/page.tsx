@@ -86,7 +86,7 @@ export default function CadPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowProjects(!showProjects)}
-              className="w-9 h-9 rounded-xl bg-snow flex items-center justify-center hover:bg-silver-mist/50 transition-colors"
+              className="w-9 h-9 cursor-pointer rounded-xl bg-snow flex items-center justify-center hover:bg-silver-mist/50 transition-colors"
               title="Proyectos"
             >
               <svg className="w-4 h-4 text-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

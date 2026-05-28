@@ -4,26 +4,26 @@ import { useCallback, useEffect, useState } from "react";
 import * as THREE from "three";
 
 const FACES = [
-  { id: "front",  label: "FRONT",  dir: [ 0,  0,  1], cssRotate: "rotateX(0deg)",    transform: "translateZ(22px)" },
-  { id: "back",   label: "BACK",   dir: [ 0,  0, -1], cssRotate: "rotateY(180deg)",  transform: "translateZ(22px)" },
+  { id: "top",    label: "TOP",    dir: [ 0,  0,  1], cssRotate: "rotateX(0deg)",    transform: "translateZ(22px)" },
+  { id: "bottom", label: "BOTTOM", dir: [ 0,  0, -1], cssRotate: "rotateY(180deg)",  transform: "translateZ(22px)" },
+  { id: "front",  label: "FRONT",  dir: [ 0,  1,  0], cssRotate: "rotateX(-90deg)",  transform: "translateZ(22px)" },
+  { id: "back",   label: "BACK",   dir: [ 0, -1,  0], cssRotate: "rotateX(90deg)",   transform: "translateZ(22px)" },
   { id: "right",  label: "RIGHT",  dir: [ 1,  0,  0], cssRotate: "rotateY(90deg)",   transform: "translateZ(22px)" },
   { id: "left",   label: "LEFT",   dir: [-1,  0,  0], cssRotate: "rotateY(-90deg)",  transform: "translateZ(22px)" },
-  { id: "top",    label: "TOP",    dir: [ 0,  1,  0], cssRotate: "rotateX(-90deg)",  transform: "translateZ(22px)" },
-  { id: "bottom", label: "BOTTOM", dir: [ 0, -1,  0], cssRotate: "rotateX(90deg)",   transform: "translateZ(22px)" },
 ];
 
-const ISO_DIR = new THREE.Vector3(0.577, 0.333, 0.577).normalize();
+const ISO_DIR = new THREE.Vector3(0.577, 0.577, 0.577).normalize();
 
 let _cam: THREE.PerspectiveCamera | null = null;
 let _ctrl: { target: THREE.Vector3; update: () => void } | null = null;
 
 function updateFromCamera() {
   const cam = _cam;
-  if (!cam) return { face: "front", rx: -25, ry: -40 };
+  if (!cam) return { face: "top", rx: -25, ry: -40 };
   const dir = new THREE.Vector3();
   cam.getWorldDirection(dir).normalize();
 
-  let bestFace = "front";
+  let bestFace = "top";
   let bestDot = -Infinity;
   for (const face of FACES) {
     const fd = new THREE.Vector3(...face.dir).normalize();
@@ -77,22 +77,22 @@ export default function ViewCube3D() {
     const t = ctrl.target.clone();
     const dist = cam.position.distanceTo(t) || 120;
     cam.position.copy(t.clone().addScaledVector(dir, -dist));
-    
-    // Ajustar el vector up según la cara
+
     switch (faceId) {
       case "top":
-        cam.up.set(0, 0, 1);
+        cam.up.set(0, -1, 0);
         break;
       case "bottom":
-        cam.up.set(0, 0, -1);
-        break;
-      case "back":
         cam.up.set(0, 1, 0);
+        break;
+      case "front":
+      case "back":
+        cam.up.set(0, 0, 1);
         break;
       default:
-        cam.up.set(0, 1, 0);
+        cam.up.set(0, 0, 1);
     }
-    
+
     cam.lookAt(t);
     ctrl.update();
     setState(updateFromCamera());
@@ -105,7 +105,7 @@ export default function ViewCube3D() {
     const t = ctrl.target.clone();
     const dist = cam.position.distanceTo(t) || 140;
     cam.position.copy(t.clone().addScaledVector(ISO_DIR, -dist));
-    cam.up.set(0, 1, 0);
+    cam.up.set(0, 0, 1);
     cam.lookAt(t);
     ctrl.update();
     setState(updateFromCamera());
