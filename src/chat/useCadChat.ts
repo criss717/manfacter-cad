@@ -56,7 +56,7 @@ export function useCadChat() {
     try {
       const ws = new WebSocket(wsUrl);
       await new Promise<void>((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error("timeout")), 5000);
+        const t = setTimeout(() => reject(new Error("timeout")), 30000);
         ws.onopen = () => { clearTimeout(t); resolve(); };
         ws.onerror = () => { clearTimeout(t); reject(new Error("connection")); };
       });
@@ -103,7 +103,7 @@ export function useCadChat() {
               addMessage({ id: `msg_${Date.now()}_err`, role: "assistant", content: "El agente tardo demasiado.", timestamp: Date.now() });
               resolve();
             }
-          }, 600000);
+          }, 1800000);
 
           const handler = (event: MessageEvent) => {
             if (doneRef.current) return;

@@ -67,15 +67,21 @@ def inspect_geometry(step_path: str) -> dict:
 
 
 def read_reference(name: str) -> str:
-    """Read a build123d reference document.
+    """Read a build123d reference document or a previously generated script.
 
     Args:
-        name: Reference filename (e.g. 'build123d-modeling.md', 'repair-loop.md', 'SKILL.md')
+        name: Reference filename or generated script path (e.g. '0047da1954ed/_script.py')
 
     Returns:
         File contents as string, or error message
     """
-    path = REFERENCES_DIR / name
+    clean_name = name.replace("\\", "/")
+    
+    if "_script.py" in clean_name:
+        path = OUTPUT_DIR / clean_name
+    else:
+        path = REFERENCES_DIR / clean_name
+
     if not path.exists():
         available = [f.name for f in REFERENCES_DIR.glob("*.md")] if REFERENCES_DIR.exists() else []
         return f"Reference '{name}' not found. Available: {', '.join(available)}"

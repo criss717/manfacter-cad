@@ -108,7 +108,9 @@ MODEL_MAP = {
 }
 
 
-async def process_user_message(websocket, user_text: str, provider: str, image_data: str | None = None):
+SESSIONS = {}
+
+async def process_user_message(websocket, user_text: str, provider: str, session_id: str, image_data: str | None = None):
     model_name = MODEL_MAP.get(provider, "glm-5.1")
 
     client = AsyncOpenAI(
@@ -118,7 +120,10 @@ async def process_user_message(websocket, user_text: str, provider: str, image_d
         max_retries=2,
     )
 
-    messages = [{"role": "system", "content": CAD_AGENT_PROMPT}]
+    if session_id not in SESSIONS:
+        SESSIONS[session_id] = [{"role": "system", "content": CAD_AGENT_PROMPT}]
+
+    messages = SESSIONS[session_id]
 
     if image_data:
         try:
@@ -175,12 +180,26 @@ async def process_user_message(websocket, user_text: str, provider: str, image_d
 
         if finish == "stop" or finish is None:
             if choice.message.content:
+                messages.append({"role": "assistant", "content": choice.message.content})
                 await websocket.send(json.dumps({"type": "agent_event", "text": choice.message.content}))
                 print(f"[OPENAI] TEXT: {choice.message.content[:100]}...")
             break
 
         if finish == "tool_calls" and choice.message.tool_calls:
-            assistant_msg = choice.message.model_dump()
+            assistant_msg = {"role": "assistant"}
+            if choice.message.content:
+                assistant_msg["content"] = choice.message.content
+            if choice.message.tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    } for tc in choice.message.tool_calls
+                ]
             messages.append(assistant_msg)
 
             for tc in choice.message.tool_calls:
@@ -215,10 +234,11 @@ async def process_user_message(websocket, user_text: str, provider: str, image_d
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": result[:1000]
+                    "content": result # Keep the full result in message history so the model can inspect full code/errors
                 })
         else:
             if choice.message.content:
+                messages.append({"role": "assistant", "content": choice.message.content})
                 await websocket.send(json.dumps({"type": "agent_event", "text": choice.message.content}))
             break
 
@@ -246,6 +266,7 @@ async def agent_session(websocket):
         user_text = msg.get("message", "")
         provider = msg.get("provider", "deepseek")
         user_image = msg.get("image", None)
+        client_sid = msg.get("session_id", "default_session")
 
         if not user_text and not user_image:
             await websocket.send(json.dumps({"type": "error", "error": "Missing 'message'"}))
@@ -255,10 +276,10 @@ async def agent_session(websocket):
             user_text = "Analiza esta imagen y genera el modelo CAD correspondiente"
 
         msg_counter += 1
-        print(f"[OPENAI] MESSAGE #{msg_counter}: {user_text[:80]}...")
+        print(f"[OPENAI] MESSAGE #{msg_counter} (session={client_sid[:12]}): {user_text[:80]}...")
 
         try:
-            await process_user_message(websocket, user_text, provider, user_image or None)
+            await process_user_message(websocket, user_text, provider, client_sid, user_image or None)
         except Exception as e:
             print(f"[OPENAI] ERROR: {e}")
             try:

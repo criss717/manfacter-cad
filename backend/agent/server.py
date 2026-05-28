@@ -25,26 +25,33 @@ signal.signal(signal.SIGINT, handler)
 signal.signal(signal.SIGTERM, handler)
 
 
+SESSION_SERVICE = InMemorySessionService()
+
 async def process_user_message(websocket, user_text: str, user_id: str, session_id: str, image_data: str | None = None):
     """Run the ADK agent and stream events back. Retries on connection errors."""
     import time
 
-    max_retries = 3
+    max_retries = 5
     for attempt in range(max_retries):
         try:
             from google.genai import types as genai_types
 
-            session_service = InMemorySessionService()
-            await session_service.create_session(
+            existing = await SESSION_SERVICE.get_session(
                 app_name="manfactercad",
                 user_id=user_id,
                 session_id=session_id,
             )
+            if existing is None:
+                await SESSION_SERVICE.create_session(
+                    app_name="manfactercad",
+                    user_id=user_id,
+                    session_id=session_id,
+                )
 
             runner = Runner(
                 app_name="manfactercad",
                 agent=cad_agent,
-                session_service=session_service,
+                session_service=SESSION_SERVICE,
             )
 
             parts = [genai_types.Part.from_text(text=user_text)]
