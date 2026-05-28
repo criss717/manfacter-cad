@@ -11,6 +11,7 @@ import InspectorPanel from "@/components/InspectorPanel";
 import { useCadStore } from "@/store/cadStore";
 import Link from "next/link";
 import Image from "next/image";
+import ComplexModal from "@/components/ComplexModal";
 
 export default function CadPage() {
   const glbUrl = useCadStore((s) => s.glbUrl);
@@ -41,7 +42,7 @@ export default function CadPage() {
           <div className="flex items-center justify-between mb-3 px-1">
             <div className="flex items-center gap-3">
               <div className="relative w-20.5 h-8 shrink-0">
-                <Image src="/logo_palacin.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="82px" />
+                <Image src="/logo.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="82px" />
               </div>
               <div>
                 <h1 className="text-heading-sm font-bold text-ink tracking-tight">Studio</h1>
@@ -98,7 +99,7 @@ export default function CadPage() {
               </svg>
             </button>
             <div className="relative w-18 h-7 shrink-0">
-              <Image src="/logo_palacin.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="72px" />
+              <Image src="/logo.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="72px" />
             </div>
             <div className="hidden lg:block">
               <h1 className="text-heading-sm font-bold text-ink tracking-tight">Studio</h1>
@@ -128,8 +129,9 @@ export default function CadPage() {
           </div>
         </motion.div>
 
-        <div className="flex flex-1 gap-0 min-h-0">
+        <div className="flex flex-1 gap-0 min-h-0 relative">
           <CadExplorer />
+          <ComplexModal />
 
           <AnimatePresence>
             {showInspector && (

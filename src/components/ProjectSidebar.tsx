@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
 import {
@@ -9,24 +10,53 @@ import {
   getProjects,
   getCurrentProjectId,
 } from "@/store/autoSave";
+import ConfirmModal from "./ConfirmModal";
 
 export default function ProjectSidebar({ onClose }: { onClose?: () => void }) {
   useCadStore((s) => s.projectRefreshKey);
+  const isProcessing = useCadStore((s) => s.isProcessing);
+  const bumpCancelRequest = useCadStore((s) => s.bumpCancelRequest);
   const focusChatInput = useCadStore((s) => s.focusChatInput);
   const bumpResetSession = useCadStore((s) => s.bumpResetSession);
   const projects = getProjects();
   const activeId = getCurrentProjectId();
+  const [confirm, setConfirm] = useState<{ type: "load" | "new"; id?: string } | null>(null);
 
   const handleNew = () => {
+    if (isProcessing) {
+      setConfirm({ type: "new" });
+      return;
+    }
+    bumpCancelRequest();
     newConversation();
     bumpResetSession();
     useCadStore.getState().clearScene();
   };
 
   const handleLoad = (id: string) => {
+    if (isProcessing) {
+      setConfirm({ type: "load", id });
+      return;
+    }
+    bumpCancelRequest();
     loadProject(id);
     bumpResetSession();
     focusChatInput();
+  };
+
+  const confirmAction = () => {
+    if (confirm?.type === "new") {
+      bumpCancelRequest();
+      newConversation();
+      bumpResetSession();
+      useCadStore.getState().clearScene();
+    } else if (confirm?.type === "load" && confirm.id) {
+      bumpCancelRequest();
+      loadProject(confirm.id);
+      bumpResetSession();
+      focusChatInput();
+    }
+    setConfirm(null);
   };
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
@@ -99,6 +129,18 @@ export default function ProjectSidebar({ onClose }: { onClose?: () => void }) {
           </p>
         )}
       </div>
+
+      <AnimatePresence>
+        {confirm && (
+          <ConfirmModal
+            title="¿Cambiar de chat?"
+            message="El ingeniero IA está procesando tu solicitud. Si cambias de chat, el proceso actual se cancelará."
+            confirmLabel="Cambiar de chat"
+            onConfirm={confirmAction}
+            onCancel={() => setConfirm(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

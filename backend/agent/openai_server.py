@@ -158,24 +158,7 @@ async def process_user_message(websocket, user_text: str, provider: str, session
     messages = SESSIONS[session_id]
 
     if image_data:
-        try:
-            if "," in image_data:
-                header, b64 = image_data.split(",", 1)
-                mime = "image/jpeg" if "jpeg" in header or "jpg" in header else "image/png"
-            else:
-                b64 = image_data
-                mime = "image/png"
-            img_url = f"data:{mime};base64,{b64}"
-            messages.append({
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": img_url}},
-                    {"type": "text", "text": user_text}
-                ]
-            })
-        except Exception as e:
-            print(f"[OPENAI] Image decode failed: {e}, sending text only")
-            messages.append({"role": "user", "content": user_text})
+        messages.append({"role": "user", "content": user_text})
     else:
         messages.append({"role": "user", "content": user_text})
 

@@ -28,12 +28,15 @@ export function useCadChat() {
   const setLastCode = useCadStore((s) => s.setLastCode);
   const lastCode = useCadStore((s) => s.lastCode);
   const resetSessionKey = useCadStore((s) => s.resetSessionKey);
+  const cancelRequestKey = useCadStore((s) => s.cancelRequestKey);
+  const setComplexModalOpen = useCadStore((s) => s.setComplexModalOpen);
   const provider = useSettingsStore((s) => s.provider);
   const [streamingText, setStreamingText] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string>("");
   const doneRef = useRef(false);
   const firstMessageRef = useRef(true);
+  const cancelKeyRef = useRef(cancelRequestKey);
 
   const cancel = useCallback(() => {
     doneRef.current = true;
@@ -47,6 +50,17 @@ export function useCadChat() {
     setProcessing(false);
     setStreamingText("");
   }, [setProcessing]);
+
+  const cancelRef = useRef(cancel);
+  useEffect(() => { cancelRef.current = cancel; });
+
+  useEffect(() => {
+    if (cancelRequestKey !== cancelKeyRef.current) {
+      cancelKeyRef.current = cancelRequestKey;
+      cancelRef.current();
+      setComplexModalOpen(false);
+    }
+  }, [cancelRequestKey, setComplexModalOpen]);
 
   const getAgentUrl = useCallback(() => {
     return provider === "gemini" ? PORT_8002 : PORT_8003;
@@ -66,7 +80,6 @@ export function useCadChat() {
         ws.onerror = () => { clearTimeout(t); reject(new Error("connection")); };
       });
       wsRef.current = ws;
-      firstMessageRef.current = true;
       if (!sessionIdRef.current) sessionIdRef.current = `sid_${Date.now()}`;
       return ws;
     } catch {
@@ -126,6 +139,10 @@ export function useCadChat() {
 
           const handler = (event: MessageEvent) => {
             if (doneRef.current) return;
+            if (useCadStore.getState().cancelRequestKey !== cancelKeyRef.current) {
+              doneRef.current = true;
+              return;
+            }
             try {
               const msg = JSON.parse(event.data);
               if (done) return;
@@ -133,6 +150,7 @@ export function useCadChat() {
               if (msg.type === "error") {
                 done = true; clearTimeout(fallbackTimeout);
                 setStreamingText("");
+                setComplexModalOpen(false);
                 addMessage({ id: `msg_${Date.now()}_err`, role: "assistant", content: `Error: ${msg.error}`, timestamp: Date.now() });
                 resolve();
                 return;
@@ -141,6 +159,7 @@ export function useCadChat() {
               if (msg.type === "done") {
                 done = true; clearTimeout(fallbackTimeout);
                 setStreamingText("");
+                setComplexModalOpen(false);
                 if (responseText) {
                   addMessage({ id: `msg_${Date.now()}_ai`, role: "assistant", content: responseText.trim(), timestamp: Date.now() });
                 }
@@ -153,8 +172,12 @@ export function useCadChat() {
                 if (msg.tool_call) {
                   if (msg.tool_call.name === "run_cad_code") {
                     attemptCount++;
+                    if (attemptCount > 2) setComplexModalOpen(true);
                     setStreamingText(`Generando (intento ${attemptCount})...`);
                   } else {
+                    if (msg.tool_call.name === "read_reference") {
+                      setComplexModalOpen(true);
+                    }
                     setStreamingText(PROGRESS[msg.tool_call.name] || msg.tool_call.name);
                   }
                 }
@@ -204,7 +227,7 @@ export function useCadChat() {
         autoSaveConversation();
       }
     },
-    [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, ensureConnection, buildEnrichedMessage]
+    [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, ensureConnection, buildEnrichedMessage, setComplexModalOpen]
   );
 
   useEffect(() => {

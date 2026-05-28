@@ -35,6 +35,8 @@ interface CadStore {
   projectRefreshKey: number;
   chatInputFocusKey: number;
   resetSessionKey: number;
+  cancelRequestKey: number;
+  complexModalOpen: boolean;
 
   addMessage: (msg: ChatMessage) => void;
   setProcessing: (v: boolean) => void;
@@ -54,6 +56,8 @@ interface CadStore {
   clearScene: () => void;
   focusChatInput: () => void;
   bumpResetSession: () => void;
+  bumpCancelRequest: () => void;
+  setComplexModalOpen: (v: boolean) => void;
 }
 
 export const useCadStore = create<CadStore>((set) => ({
@@ -81,6 +85,8 @@ export const useCadStore = create<CadStore>((set) => ({
   projectRefreshKey: 0,
   chatInputFocusKey: 0,
   resetSessionKey: 0,
+  cancelRequestKey: 0,
+  complexModalOpen: false,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
   setProcessing: (v) => set({ isProcessing: v }),
@@ -115,6 +121,8 @@ export const useCadStore = create<CadStore>((set) => ({
   bumpProjectRefresh: () => set((s) => ({ projectRefreshKey: s.projectRefreshKey + 1 })),
   focusChatInput: () => set((s) => ({ chatInputFocusKey: s.chatInputFocusKey + 1 })),
   bumpResetSession: () => set((s) => ({ resetSessionKey: s.resetSessionKey + 1 })),
+  bumpCancelRequest: () => set((s) => ({ cancelRequestKey: s.cancelRequestKey + 1 })),
+  setComplexModalOpen: (v) => set({ complexModalOpen: v }),
   clearScene: () => set((s) => ({
     shapes: {},
     messages: [

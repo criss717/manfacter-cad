@@ -8,11 +8,11 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useCadStore } from "@/store/cadStore";
 
 const PROVIDERS = [
-  { id: "deepseek", label: "DeepSeek V4 Pro" },
-  { id: "glm", label: "GLM 5.1" },
-  { id: "kimi", label: "Kimi K2.6" },
-  { id: "gemini", label: "Gemini" },
-  { id: "openai", label: "GPT-4o" },
+  { id: "gemini", label: "Gemini 3.5 Flash", disabled: false },
+  { id: "deepseek", label: "DeepSeek V4 Pro — Próximamente", disabled: true },
+  { id: "glm", label: "GLM 5.1 — Próximamente", disabled: true },
+  { id: "kimi", label: "Kimi K2.6 — Próximamente", disabled: true },
+  { id: "openai", label: "GPT-4o — Próximamente", disabled: true },
 ] as const;
 
 export default function ChatPanel() {
@@ -122,10 +122,10 @@ export default function ChatPanel() {
           <select
             value={provider}
             onChange={(e) => setProvider(e.target.value as typeof provider)}
-            className="h-8 rounded-lg bg-fog border border-silver-mist text-caption text-ink px-2 focus:outline-none focus:border-azure/50 cursor-pointer"
+            className="h-8 rounded-lg bg-fog border border-silver-mist text-caption text-ink px-2 focus:outline-none focus:border-azure/50 cursor-pointer disabled:text-graphite/50"
           >
             {PROVIDERS.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
+              <option key={p.id} value={p.id} disabled={p.disabled}>{p.label}</option>
             ))}
           </select>
         </div>
