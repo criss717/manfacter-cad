@@ -1,118 +1,155 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as THREE from "three";
 
 const FACES = [
-  { id: "front",  label: "FRONT",  dir: [ 0,  0,  1], cssRotate: "rotateX(0deg)",    transform: "translateZ(22px)" },
-  { id: "back",   label: "BACK",   dir: [ 0,  0, -1], cssRotate: "rotateX(180deg)",  transform: "translateZ(22px)" },
-  { id: "right",  label: "RIGHT",  dir: [ 1,  0,  0], cssRotate: "rotateY(90deg)",   transform: "translateZ(22px)" },
-  { id: "left",   label: "LEFT",   dir: [-1,  0,  0], cssRotate: "rotateY(-90deg)",  transform: "translateZ(22px)" },
-  { id: "top",    label: "TOP",    dir: [ 0,  1,  0], cssRotate: "rotateX(-90deg)",  transform: "translateZ(22px)" },
-  { id: "bottom", label: "BOTTOM", dir: [ 0, -1,  0], cssRotate: "rotateX(90deg)",   transform: "translateZ(22px)" },
+  { id: "arriba",  label: "ARRIBA",  dir: [ 0,  0, -1], cssRotate: "rotateY(180deg)",  transform: "translateZ(22px)" },
+  { id: "abajo",   label: "ABAJO",   dir: [ 0,  0,  1], cssRotate: "rotateX(0deg)",    transform: "translateZ(22px)" },
+  { id: "frente",  label: "FRENTE",  dir: [ 0,  1,  0], cssRotate: "rotateX(-90deg)",  transform: "translateZ(22px)" },
+  { id: "atras",   label: "ATRAS",   dir: [ 0, -1,  0], cssRotate: "rotateX(90deg)",   transform: "translateZ(22px)" },
+  { id: "der",     label: "DER",     dir: [ 1,  0,  0], cssRotate: "rotateY(90deg)",   transform: "translateZ(22px)" },
+  { id: "izq",     label: "IZQ",     dir: [-1,  0,  0], cssRotate: "rotateY(-90deg)",  transform: "translateZ(22px)" },
 ];
 
-const ISO_DIR = new THREE.Vector3(0.577, 0.333, 0.577).normalize();
+const ISO_DIR = new THREE.Vector3(-0.577, -0.577, -0.577).normalize();
 
-interface ViewRefs {
-  camera: THREE.PerspectiveCamera | null;
-  controls: { target: THREE.Vector3; update: () => void } | null;
+let _cam: THREE.PerspectiveCamera | null = null;
+let _ctrl: { target: THREE.Vector3; update: () => void } | null = null;
+
+function updateFromCamera() {
+  const cam = _cam;
+  if (!cam) return { face: "abajo", rx: -25, ry: -40 };
+  const dir = new THREE.Vector3();
+  cam.getWorldDirection(dir).normalize();
+
+  let bestFace = "abajo";
+  let bestDot = -Infinity;
+  for (const face of FACES) {
+    const fd = new THREE.Vector3(...face.dir).normalize();
+    const dot = dir.dot(fd);
+    if (dot > bestDot) { bestDot = dot; bestFace = face.id; }
+  }
+
+  const rx = Math.asin(dir.y) * (180 / Math.PI);
+  const ry = -Math.atan2(dir.x, dir.z) * (180 / Math.PI);
+
+  return { face: bestFace, rx, ry };
 }
 
-export const viewRefs: ViewRefs = { camera: null, controls: null };
+export const syncViewCube = (controls: { target: THREE.Vector3; update: () => void } | null) => {
+  if (!controls) return;
+  _ctrl = controls;
+  const orig = (controls as Record<string, unknown>);
+  const cam = orig.object as THREE.PerspectiveCamera | undefined;
+  if (cam) _cam = cam;
+};
+
+let _subscribers: Array<() => void> = [];
+function subscribe(fn: () => void) {
+  _subscribers.push(fn);
+  return () => { _subscribers = _subscribers.filter((s) => s !== fn); };
+}
+function notify() {
+  for (const fn of _subscribers) fn();
+}
+
+if (typeof window !== "undefined") {
+  setInterval(() => {
+    if (_ctrl) notify();
+  }, 100);
+}
 
 export default function ViewCube3D() {
-  const [activeFace, setActiveFace] = useState<string>("front");
-  const [cubeRotation, setCubeRotation] = useState({ x: -20, y: -35 });
-  const rafRef = useRef<number>(0);
+  const [state, setState] = useState(() => updateFromCamera());
 
   useEffect(() => {
-    const update = () => {
-      const cam = viewRefs.camera;
-      if (!cam) {
-        rafRef.current = requestAnimationFrame(update);
-        return;
-      }
-      const camDir = new THREE.Vector3();
-      cam.getWorldDirection(camDir);
-      camDir.normalize();
-
-      let bestFace = "front";
-      let bestDot = -Infinity;
-      for (const face of FACES) {
-        const fd = new THREE.Vector3(...face.dir).normalize();
-        const dot = camDir.dot(fd);
-        if (dot > bestDot) { bestDot = dot; bestFace = face.id; }
-      }
-
-      const rx = Math.asin(-camDir.y) * (180 / Math.PI) * 0.5;
-      const ry = Math.atan2(camDir.x, camDir.z) * (180 / Math.PI) * 0.5;
-      setCubeRotation({ x: rx, y: ry });
-      setActiveFace(bestFace);
-      rafRef.current = requestAnimationFrame(update);
-    };
-    rafRef.current = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(rafRef.current);
+    return subscribe(() => setState(updateFromCamera()));
   }, []);
 
   const goToFace = useCallback((faceId: string) => {
-    const cam = viewRefs.camera;
-    const ctrl = viewRefs.controls;
+    const cam = _cam;
+    const ctrl = _ctrl;
     if (!cam || !ctrl) return;
-    const face = FACES.find(f => f.id === faceId);
+    const face = FACES.find((f) => f.id === faceId);
     if (!face) return;
     const dir = new THREE.Vector3(...face.dir);
     const t = ctrl.target.clone();
     const dist = cam.position.distanceTo(t) || 120;
     cam.position.copy(t.clone().addScaledVector(dir, -dist));
-    cam.up.set(0, 1, 0);
+
+    switch (faceId) {
+      case "arriba":
+        cam.up.set(0, -1, 0);
+        break;
+      case "abajo":
+        cam.up.set(0, 1, 0);
+        break;
+      case "frente":
+      case "atras":
+        cam.up.set(0, 0, 1);
+        break;
+      default:
+        cam.up.set(0, 0, 1);
+    }
+
     cam.lookAt(t);
     ctrl.update();
+    setState(updateFromCamera());
   }, []);
 
   const goIso = useCallback(() => {
-    const cam = viewRefs.camera;
-    const ctrl = viewRefs.controls;
+    const cam = _cam;
+    const ctrl = _ctrl;
     if (!cam || !ctrl) return;
     const t = ctrl.target.clone();
     const dist = cam.position.distanceTo(t) || 140;
     cam.position.copy(t.clone().addScaledVector(ISO_DIR, -dist));
-    cam.up.set(0, 1, 0);
+    cam.up.set(0, 0, 1);
     cam.lookAt(t);
     ctrl.update();
+    setState(updateFromCamera());
   }, []);
 
   return (
-    <div className="absolute bottom-6 right-6 z-10 select-none">
-      <div className="relative" style={{ width: 64, height: 64, perspective: "200px" }}>
+    <div className="absolute bottom-14 right-6 z-10 select-none">
+      <div className="relative" style={{ width: 60, height: 60, perspective: "200px" }}>
         <div
           className="absolute inset-0"
           style={{
             transformStyle: "preserve-3d",
-            transform: `rotateX(${cubeRotation.x}deg) rotateY(${cubeRotation.y}deg)`,
-            transition: "transform 0.1s linear",
+            transform: `rotateX(${state.rx}deg) rotateY(${state.ry}deg)`,
+            transition: "transform 0.15s ease-out",
           }}
         >
-          {FACES.map((face) => (
-            <button
-              key={face.id}
-              onClick={() => goToFace(face.id)}
-              className={`absolute inset-0 flex items-center justify-center cursor-pointer border backdrop-blur-[1px] ${
-                activeFace === face.id
-                  ? "border-azure/60 bg-azure/15 text-snow"
-                  : "border-silver-mist/20 bg-obsidian/80 text-silver-mist/60 hover:bg-slate/60 hover:text-snow"
-              }`}
-              style={{ transform: `${face.cssRotate} ${face.transform}`, borderRadius: 4, fontSize: 8, fontWeight: 600, letterSpacing: "0.04em" }}
-              title={`Vista ${face.label}`}
-            >
-              {face.label}
-            </button>
-          ))}
+          {FACES.map((face) => {
+            const active = state.face === face.id;
+            return (
+              <button
+                key={face.id}
+                onClick={() => goToFace(face.id)}
+                className="absolute inset-0 flex items-center justify-center cursor-pointer"
+                style={{
+                  transform: `${face.cssRotate} ${face.transform}`,
+                  borderRadius: 4,
+                  fontSize: 7,
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  background: active ? "#0071e3" : "#e8e8ed",
+                  color: active ? "#ffffff" : "#86868b",
+                  border: active ? "1px solid #0071e3" : "1px solid #d2d2d7",
+                }}
+                title={`Vista ${face.label}`}
+              >
+                {face.label}
+              </button>
+            );
+          })}
         </div>
       </div>
       <button
         onClick={goIso}
-        className="mt-1.5 w-full h-7 rounded-md text-[8px] font-semibold tracking-wider transition-all border border-silver-mist/10 bg-obsidian/80 text-silver-mist/40 hover:text-snow hover:bg-slate/40"
+        className="mt-8 w-full h-6 cursor-pointer rounded-md text-[8px] font-semibold tracking-wider transition-all border border-[#d2d2d7] bg-silver-mist text-[#86868b] hover:text-ink hover:bg-[#dcdce0]"
         title="Vista isometrica"
       >
         ISO

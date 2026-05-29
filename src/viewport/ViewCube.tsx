@@ -93,7 +93,7 @@ export default function ViewCube() {
         </button>
         <button
           onClick={lookIso}
-          className="w-full h-5 rounded-sm text-[8px] font-semibold text-silver-mist/50 hover:bg-slate/40 hover:text-snow transition-all mt-0.5"
+          className="w-full h-5 cursor-pointer rounded-sm text-[8px] font-semibold text-silver-mist/50 hover:bg-slate/40 hover:text-snow transition-all mt-0.5"
         >
           ISO
         </button>

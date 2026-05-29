@@ -11,15 +11,17 @@ export default function HomePage() {
         initial={{ y: -44 }}
         animate={{ y: 0 }}
         transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
-        className="h-11 flex items-center justify-between px-5 bg-fog/80 backdrop-blur-md border-b border-silver-mist sticky top-0 z-50"
+        className="h-20 flex items-center justify-between px-5 bg-fog/80 backdrop-blur-md border-b border-silver-mist sticky top-0 z-50"
       >
         <div className="flex items-center gap-3">
-          <Image src="/logo.png" alt="ManfacterCAD" width={22} height={22} className="rounded-md" />
-          <span className="text-body-sm font-semibold text-ink tracking-tight">ManfacterCAD</span>
+          <div className="relative w-30 h-12">
+            <Image src="/logo.png" alt="Manfacter" fill className="rounded-md object-contain" sizes="120px" />
+          </div>
+          <span className="text-display text-[1.25rem] font-semibold text-manfacter tracking-tight hidden sm:block">Studio</span>
         </div>
         <Link
           href="/cad"
-          className="rounded-full bg-azure text-snow text-caption font-medium px-4 py-1.5 hover:bg-cobalt-link transition-colors duration-[0.1s]"
+          className="rounded-full bg-azure text-snow text-caption text-[0.875rem] font-medium px-4 py-1.5 hover:bg-cobalt-link transition-colors duration-100"
         >
           Comenzar
         </Link>
@@ -30,7 +32,7 @@ export default function HomePage() {
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: [0.25, 0.1, 0.25, 1], delay: 0.2 }}
-          className="max-w-[680px] text-center"
+          className="max-w-170 text-center"
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -40,10 +42,10 @@ export default function HomePage() {
           >
             <Image
               src="/logo.png"
-              alt="ManfacterCAD"
-              width={72}
-              height={72}
-              className="mx-auto rounded-[20px]"
+              alt="Manfacter"
+              width={120}
+              height={48}
+              className="mx-auto rounded-xl object-contain"
             />
           </motion.div>
 
@@ -51,7 +53,7 @@ export default function HomePage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.4, delay: 0.5 }}
-            className="text-subheading font-semibold text-ink tracking-tight mb-3"
+            className="text-subheading font-semibold text-manfacter tracking-tight mb-3"
           >
             Diseño 3D con IA para fabricación
           </motion.p>
@@ -60,7 +62,7 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.6, ease: [0.25, 0.1, 0.25, 1] }}
-            className="text-display font-bold text-ink tracking-[-0.022em] leading-[1.04] mb-6"
+            className="text-display font-bold text-[3rem] text-manfacter tracking-[-0.022em] leading-[1.04] mb-6"
           >
             Crea piezas
             <br />
@@ -71,7 +73,7 @@ export default function HomePage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.4, delay: 0.8 }}
-            className="text-body text-graphite max-w-[460px] mx-auto mb-12 leading-relaxed"
+            className="text-body text-graphite max-w-115 mx-auto mb-12 leading-relaxed"
           >
             Describe la pieza que necesitas fabricar en lenguaje natural.
             La IA la modela al instante con medidas exactas en milímetros.
@@ -85,7 +87,7 @@ export default function HomePage() {
           >
             <Link
               href="/cad"
-              className="inline-flex rounded-full bg-azure text-snow text-body px-7 py-3 hover:bg-cobalt-link transition-colors duration-[0.1s] font-medium shadow-[0_0_0_4px_rgba(0,113,227,0.12)]"
+              className="inline-flex rounded-full bg-azure text-snow text-body px-7 py-3 hover:bg-cobalt-link transition-colors duration-100 font-medium shadow-[0_0_0_4px_rgba(0,113,227,0.12)]"
             >
               Empezar ahora
             </Link>

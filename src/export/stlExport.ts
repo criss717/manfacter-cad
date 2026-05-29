@@ -10,7 +10,7 @@ function geometryToSTLBuffer(geometry: THREE.BufferGeometry, name?: string): Arr
 
   const triangleCount = idx ? idx.count / 3 : pos.count / 3;
   const header = new Uint8Array(80);
-  const nameStr = (name || "ManfacterCAD").slice(0, 80);
+  const nameStr = (name || "ManfacterStudio").slice(0, 80);
   for (let i = 0; i < nameStr.length; i++) header[i] = nameStr.charCodeAt(i);
 
   const bufSize = 84 + Math.floor(triangleCount) * 50;

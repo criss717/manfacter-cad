@@ -12,6 +12,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+import signal
+
+def handler(signum, frame):
+    print(f"[BACKEND] Signal {signum} received, shutting down.")
+    sys.exit(0)
+    
+signal.signal(signal.SIGINT, handler)
+signal.signal(signal.SIGTERM, handler)
 
 from cad_engine.generator import generate_cad
 

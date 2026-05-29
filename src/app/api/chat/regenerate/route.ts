@@ -1,4 +1,4 @@
-import { runCadGeneration } from "../chat/route";
+import { runCadGeneration } from "@/lib/cadGeneration";
 
 export async function POST(req: Request) {
   try {

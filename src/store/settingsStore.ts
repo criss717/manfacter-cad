@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type LLMProvider = "gemini" | "deepseek" | "openai";
+export type LLMProvider = "gemini" | "deepseek" | "glm" | "kimi" | "openai";
 
 interface SettingsStore {
   provider: LLMProvider;
@@ -15,7 +15,7 @@ function loadProvider(): LLMProvider {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const data = JSON.parse(stored);
-      if (["gemini", "deepseek", "openai"].includes(data.provider)) {
+      if (["gemini", "deepseek", "glm", "kimi", "openai"].includes(data.provider)) {
         return data.provider as LLMProvider;
       }
     }
