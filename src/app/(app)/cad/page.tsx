@@ -46,7 +46,10 @@ function MobileDrawer({
             className="fixed left-0 top-0 bottom-0 w-70 bg-snow rounded-r-3xl z-50 flex flex-col shadow-none"
           >
             <div className="flex-1 overflow-y-auto">
-              <ProjectSidebar onClose={() => { onClose(); }} />
+              <ProjectSidebar
+                onClose={() => { onClose(); }}
+                onNewChat={() => { onChat(); onClose(); }}
+              />
             </div>
             <div className="border-t border-silver-mist p-4 space-y-2">
               <button
@@ -175,51 +178,36 @@ export default function CadPage() {
 
         <div className="flex-1 min-h-0 relative">
           <ComplexModal />
-          <AnimatePresence mode="wait">
-            {mobileView === "chat" ? (
-              <motion.div
-                key="chat"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="h-full relative"
+
+          <div className={`h-full ${mobileView === "chat" ? "" : "hidden"}`}>
+            <div className="h-full relative">
+              <ChatPanel />
+              <button
+                onClick={() => setMobileView("viewport")}
+                className="absolute top-1 right-5 z-10 cursor-pointer w-7 h-7 rounded-full bg-snow/90 backdrop-blur-sm border border-silver-mist flex items-center justify-center hover:bg-snow transition-colors shadow-none"
+                title="Ver pieza"
               >
-                <ChatPanel />
-                {glbUrl && (
-                  <button
-                    onClick={() => setMobileView("viewport")}
-                    className="absolute top-1 right-5 z-10 cursor-pointer w-7 h-7 rounded-full bg-snow/90 backdrop-blur-sm border border-silver-mist flex items-center justify-center hover:bg-snow transition-colors shadow-none"
-                    title="Ver pieza"
-                  >
-                    <svg className="w-4 h-4 text-graphite" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 5l-7 7 7 7" />
-                    </svg>
-                  </button>
-                )}
-              </motion.div>
-            ) : (
-              <motion.div
-                key="viewport"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="absolute inset-0 flex flex-col"
+                <svg className="w-4 h-4 text-graphite" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 5l-7 7 7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {mobileView === "viewport" && (
+            <div className="absolute inset-0 z-10 flex flex-col bg-fog">
+              <CadExplorer />
+              <button
+                onClick={() => setMobileView("chat")}
+                className="absolute top-3 left-3 z-10 cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-snow/90 backdrop-blur-sm border border-silver-mist text-caption text-ink font-medium hover:bg-snow transition-colors shadow-none"
               >
-                <CadExplorer />
-                <button
-                  onClick={() => setMobileView("chat")}
-                  className="absolute top-3 left-3 z-10 cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-snow/90 backdrop-blur-sm border border-silver-mist text-caption text-ink font-medium hover:bg-snow transition-colors shadow-none"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                  </svg>
-                  Chat
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+                Chat
+              </button>
+            </div>
+          )}
 
           <AnimatePresence>
             {showInspector && (

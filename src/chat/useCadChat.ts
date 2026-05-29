@@ -264,7 +264,8 @@ export function useCadChat() {
     sessionIdRef.current = "";
     firstMessageRef.current = true;
     doneRef.current = true;
-  }, [resetSessionKey]);
+    setProcessing(false);
+  }, [resetSessionKey, setProcessing]);
 
   return { messages, sendMessage, cancel, isProcessing, streamingText };
 }
