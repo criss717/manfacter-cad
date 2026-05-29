@@ -189,7 +189,7 @@ export default function CadPage() {
                 {glbUrl && (
                   <button
                     onClick={() => setMobileView("viewport")}
-                    className="absolute top-4 left-4 z-10 cursor-pointer w-8 h-8 rounded-full bg-snow/90 backdrop-blur-sm border border-silver-mist flex items-center justify-center hover:bg-snow transition-colors shadow-none"
+                    className="absolute top-1 right-5 z-10 cursor-pointer w-7 h-7 rounded-full bg-snow/90 backdrop-blur-sm border border-silver-mist flex items-center justify-center hover:bg-snow transition-colors shadow-none"
                     title="Ver pieza"
                   >
                     <svg className="w-4 h-4 text-graphite" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
