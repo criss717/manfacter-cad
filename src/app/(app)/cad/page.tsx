@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import CadExplorer from "@/viewport/CadExplorer";
 import ChatPanel from "@/chat/ChatPanel";
@@ -43,7 +43,7 @@ function MobileDrawer({
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: -280, opacity: 0 }}
             transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
-            className="fixed left-0 top-0 bottom-0 w-[280px] bg-snow rounded-r-3xl z-50 flex flex-col shadow-none"
+            className="fixed left-0 top-0 bottom-0 w-70 bg-snow rounded-r-3xl z-50 flex flex-col shadow-none"
           >
             <div className="flex-1 overflow-y-auto">
               <ProjectSidebar onClose={() => { onClose(); }} />
@@ -104,11 +104,16 @@ export default function CadPage() {
     loadAutoSaved();
   }, []);
 
+  const prevGlbUrl = useRef<string | null>(null);
+
   useEffect(() => {
-    if (isMobile && glbUrl && mobileView === "chat") {
-      setMobileView("viewport");
+    const justLoaded = prevGlbUrl.current === null && glbUrl !== null;
+    prevGlbUrl.current = glbUrl;
+    if (isMobile && justLoaded) {
+      const id = setTimeout(() => setMobileView("viewport"), 0);
+      return () => clearTimeout(id);
     }
-  }, [glbUrl, isMobile, mobileView]);
+  }, [glbUrl, isMobile]);
 
   if (!mounted) {
     return (
@@ -137,11 +142,11 @@ export default function CadPage() {
   if (isMobile) {
     return (
       <div className="flex flex-1 h-screen overflow-hidden bg-fog flex-col">
-        <div className="flex items-center justify-between px-4 py-2 bg-snow/90 backdrop-blur-sm border-b border-silver-mist shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 bg-snow/90 backdrop-blur-sm border-b border-silver-mist shrink-0">
           <button
             onClick={() => setMobileDrawerOpen(true)}
             className="w-9 h-9 cursor-pointer rounded-xl bg-fog flex items-center justify-center hover:bg-silver-mist/50 transition-colors"
-            title="Menu"
+            title="Proyectos"
           >
             <svg className="w-4 h-4 text-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -151,7 +156,7 @@ export default function CadPage() {
             <div className="relative w-18 h-7 shrink-0">
               <Image src="/logo.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="72px" />
             </div>
-            <h1 className="text-heading-sm font-bold text-[#1848a3] tracking-tight">Studio</h1>
+            <h1 className="hidden lg:block text-heading-sm font-bold text-[#1848a3] tracking-tight">Studio</h1>
           </div>
           <div className="flex items-center gap-1">
             <ExportPanel />
@@ -163,7 +168,7 @@ export default function CadPage() {
                   : "bg-snow text-ink hover:bg-silver-mist/50"
               }`}
             >
-              Ajustes
+              Propiedades
             </button>
           </div>
         </div>
@@ -177,9 +182,20 @@ export default function CadPage() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="h-full"
+                className="h-full relative"
               >
                 <ChatPanel />
+                {glbUrl && (
+                  <button
+                    onClick={() => setMobileView("viewport")}
+                    className="absolute top-1 left-92 z-10 cursor-pointer w-7 h-7 rounded-full bg-snow/90 backdrop-blur-sm border border-silver-mist flex items-center justify-center hover:bg-snow transition-colors shadow-none"
+                    title="Ver pieza"
+                  >
+                  <svg className="w-4 h-4 text-graphite" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 5l-7 7 7 7" />
+                  </svg>
+                  </button>
+                )}
               </motion.div>
             ) : (
               <motion.div
@@ -188,21 +204,19 @@ export default function CadPage() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="h-full flex flex-col"
+                className="absolute inset-0 flex flex-col"
               >
-                <div className="flex-1 relative">
-                  <CadExplorer />
-                  <ComplexModal />
-                  <button
-                    onClick={() => setMobileView("chat")}
-                    className="absolute top-3 left-3 z-10 cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-snow/90 backdrop-blur-sm border border-silver-mist text-caption text-ink font-medium hover:bg-snow transition-colors shadow-none"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                    </svg>
-                    Chat
-                  </button>
-                </div>
+                <CadExplorer />
+                <ComplexModal />
+                <button
+                  onClick={() => setMobileView("chat")}
+                  className="absolute top-3 left-3 z-10 cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-snow/90 backdrop-blur-sm border border-silver-mist text-caption text-ink font-medium hover:bg-snow transition-colors shadow-none"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                  Chat
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -223,7 +237,7 @@ export default function CadPage() {
                   animate={{ x: 0, opacity: 1 }}
                   exit={{ x: "100%", opacity: 0 }}
                   transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
-                  className="absolute right-0 top-0 bottom-0 w-[85vw] max-w-[260px] bg-snow rounded-l-3xl z-30 overflow-hidden shadow-none"
+                  className="absolute right-0 top-0 bottom-0 w-[85vw] max-w-65 bg-snow rounded-l-3xl z-30 overflow-hidden shadow-none"
                 >
                   <div className="flex items-center justify-between px-4 py-3 border-b border-silver-mist">
                     <h3 className="text-body-sm font-semibold text-ink">Propiedades</h3>
