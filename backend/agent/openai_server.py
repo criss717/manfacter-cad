@@ -306,10 +306,11 @@ async def agent_session(websocket):
 
 
 async def main():
-    port = 8003
-    print(f"[OPENAI] Agent server starting on ws://127.0.0.1:{port}")
+    host = os.environ.get("BACKEND_HOST", "127.0.0.1")
+    port = int(os.environ.get("OPENAI_AGENT_PORT", "8003"))
+    print(f"[OPENAI] Agent server starting on ws://{host}:{port}")
     cleanup_task = asyncio.create_task(_cleanup_sessions_loop())
-    async with serve(agent_session, "127.0.0.1", port) as server:
+    async with serve(agent_session, host, port) as server:
         await server.serve_forever()
     cleanup_task.cancel()
 

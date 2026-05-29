@@ -3,6 +3,7 @@ ManfacterCAD — Python Backend
 FastAPI server for CAD generation using build123d + OpenCASCADE.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -73,4 +74,6 @@ app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    host = os.environ.get("BACKEND_HOST", "127.0.0.1")
+    port = int(os.environ.get("BACKEND_PORT", "8000"))
+    uvicorn.run(app, host=host, port=port)
