@@ -6,21 +6,21 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { autoSaveConversation } from "@/store/autoSave";
 
 function getWsUrl(path: string, directPort: string): string {
-  const host = process.env.NEXT_PUBLIC_BACKEND_HOST;
-  if (host) {
-    return `ws://${host}:${directPort}`;
+  if (process.env.NEXT_PUBLIC_PROXY) {
+    if (typeof window === "undefined") return "";
+    const proto = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${proto}://${window.location.host}${path}`;
   }
-  if (typeof window === "undefined") return "";
-  const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${window.location.host}${path}`;
+  const host = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "127.0.0.1";
+  return `ws://${host}:${directPort}`;
 }
 
 function getBackendUrl(): string {
-  const host = process.env.NEXT_PUBLIC_BACKEND_HOST;
-  if (host) {
-    return `http://${host}:8000`;
+  if (process.env.NEXT_PUBLIC_PROXY) {
+    return "";
   }
-  return "";
+  const host = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "127.0.0.1";
+  return `http://${host}:8000`;
 }
 
 const PROGRESS: Record<string, string> = {

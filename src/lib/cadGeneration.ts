@@ -1,9 +1,9 @@
 function getBackendUrl(): string {
-  const host = process.env.NEXT_PUBLIC_BACKEND_HOST;
-  if (host) {
-    return `http://${host}:8000`;
+  if (process.env.NEXT_PUBLIC_PROXY) {
+    return "";
   }
-  return "";
+  const host = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "127.0.0.1";
+  return `http://${host}:8000`;
 }
 
 export async function runCadGeneration(code: string): Promise<{
