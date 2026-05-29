@@ -56,7 +56,7 @@ export default function ComplexModal() {
             />
           ))}
         </div>
-        <span className="text-caption text-graphite">Ingeniero IA trabajando...</span>
+        <span className="text-caption text-graphite">¿Qué hacer mientras esperas?</span>
       </motion.div>
     );
   }
