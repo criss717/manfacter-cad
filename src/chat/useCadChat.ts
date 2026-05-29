@@ -5,10 +5,23 @@ import { useCadStore, type ChatMessage } from "@/store/cadStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { autoSaveConversation } from "@/store/autoSave";
 
-const BACKEND_HOST = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "127.0.0.1";
-const PORT_8002 = `ws://${BACKEND_HOST}:8002`;
-const PORT_8003 = `ws://${BACKEND_HOST}:8003`;
-const BACKEND_URL = `http://${BACKEND_HOST}:8000`;
+function getWsUrl(path: string, directPort: string): string {
+  if (process.env.NEXT_PUBLIC_PROXY) {
+    if (typeof window === "undefined") return "";
+    const proto = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${proto}://${window.location.host}${path}`;
+  }
+  const host = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "127.0.0.1";
+  return `ws://${host}:${directPort}`;
+}
+
+function getBackendUrl(): string {
+  if (process.env.NEXT_PUBLIC_PROXY) {
+    return "";
+  }
+  const host = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "127.0.0.1";
+  return `http://${host}:8000`;
+}
 
 const PROGRESS: Record<string, string> = {
   read_reference: "Consultando documentacion...",
@@ -64,7 +77,7 @@ export function useCadChat() {
   }, [cancelRequestKey, setComplexModalOpen]);
 
   const getAgentUrl = useCallback(() => {
-    return provider === "gemini" ? PORT_8002 : PORT_8003;
+    return provider === "gemini" ? getWsUrl("/ws/gemini", "8002") : getWsUrl("/ws/openai", "8003");
   }, [provider]);
 
   const ensureConnection = useCallback(async (): Promise<WebSocket | null> => {
@@ -195,15 +208,16 @@ export function useCadChat() {
                       }
                       if (data.ok) {
                         setStreamingText("Geometria lista!");
-                        if (data.glb_url) setGlbUrl(`${BACKEND_URL}${String(data.glb_url)}`);
-                        if (data.step_url) setStepUrl(`${BACKEND_URL}${String(data.step_url)}`);
-                        if (data.stl_url) setStlUrl(`${BACKEND_URL}${String(data.stl_url)}`);
+                        const base = getBackendUrl();
+                        if (data.glb_url) setGlbUrl(`${base}${String(data.glb_url)}`);
+                        if (data.step_url) setStepUrl(`${base}${String(data.step_url)}`);
+                        if (data.stl_url) setStlUrl(`${base}${String(data.stl_url)}`);
                         if (data.code) setLastCode(String(data.code), {});
                       }
                     } catch {
                       const response = String(r.response || "");
                       const glbMatch = response.match(/glb_url["'\s:]+["']?(\/[^"'\s,}]+)/);
-                      if (glbMatch) { setGlbUrl(`${BACKEND_URL}${glbMatch[1]}`); setStreamingText("Geometria lista!"); }
+                      if (glbMatch) { setGlbUrl(`${getBackendUrl()}${glbMatch[1]}`); setStreamingText("Geometria lista!"); }
                     }
                   }
                 }
