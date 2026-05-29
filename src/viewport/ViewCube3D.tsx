@@ -16,6 +16,7 @@ const ISO_DIR = new THREE.Vector3(-0.577, -0.577, -0.577).normalize();
 
 let _cam: THREE.PerspectiveCamera | null = null;
 let _ctrl: { target: THREE.Vector3; update: () => void } | null = null;
+let _currentFace = "abajo";
 
 function updateFromCamera() {
   const cam = _cam;
@@ -30,6 +31,17 @@ function updateFromCamera() {
     const dot = dir.dot(fd);
     if (dot > bestDot) { bestDot = dot; bestFace = face.id; }
   }
+
+  if (bestFace !== _currentFace) {
+    const cur = FACES.find((f) => f.id === _currentFace);
+    if (cur) {
+      const curDot = dir.dot(new THREE.Vector3(...cur.dir).normalize());
+      if (bestDot - curDot < 0.02) {
+        bestFace = _currentFace;
+      }
+    }
+  }
+  _currentFace = bestFace;
 
   const rx = Math.asin(dir.y) * (180 / Math.PI);
   const ry = -Math.atan2(dir.x, dir.z) * (180 / Math.PI);
@@ -135,9 +147,9 @@ export default function ViewCube3D() {
                   fontSize: 7,
                   fontWeight: 700,
                   letterSpacing: "0.05em",
-                  background: active ? "#0071e3" : "#e8e8ed",
+                  background: active ? "#0071e3" : "#ffffff",
                   color: active ? "#ffffff" : "#86868b",
-                  border: active ? "1px solid #0071e3" : "1px solid #d2d2d7",
+                  border: active ? "1px solid #0071e3" : "1px solid #e8e8ed",
                 }}
                 title={`Vista ${face.label}`}
               >
@@ -149,7 +161,7 @@ export default function ViewCube3D() {
       </div>
       <button
         onClick={goIso}
-        className="mt-8 w-full h-6 cursor-pointer rounded-md text-[8px] font-semibold tracking-wider transition-all border border-[#d2d2d7] bg-silver-mist text-[#86868b] hover:text-ink hover:bg-[#dcdce0]"
+        className="mt-8 w-full h-6 cursor-pointer rounded-md text-[8px] font-semibold tracking-wider transition-all border border-silver-mist bg-snow/90 backdrop-blur-sm text-ink hover:bg-snow"
         title="Vista isometrica"
       >
         ISO

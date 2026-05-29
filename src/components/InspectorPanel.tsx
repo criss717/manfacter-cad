@@ -160,14 +160,24 @@ export default function InspectorPanel() {
     >
       <div className="px-5 py-4 border-b border-silver-mist">
         <h2 className="text-body font-semibold text-ink tracking-tight">Propiedades</h2>
-        <p className="text-caption text-graphite mt-0.5">Ajusta los parametros de la pieza</p>
+        {generating ? (
+          <div className="flex items-center gap-2 mt-1">
+            <svg className="animate-spin w-3.5 h-3.5 text-manfacter" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className="text-footnote text-manfacter">Regenerando...</span>
+          </div>
+        ) : (
+          <p className="text-caption text-graphite mt-0.5">Ajusta los parametros de la pieza</p>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
         {hasCode && paramEntries.length > 0 && (
           <div>
             <h3 className="text-footnote font-semibold text-graphite uppercase tracking-wider mb-3">Medidas (mm)</h3>
-            <div className="space-y-3">
+            <div className={`space-y-3 ${generating ? "opacity-40 pointer-events-none" : ""}`}>
               {paramEntries.map(([name, value]) => {
                 const min = paramMin(value);
                 const max = paramMax(value);
@@ -231,7 +241,7 @@ export default function InspectorPanel() {
           </div>
         )}
 
-        <div>
+        <div className={generating ? "opacity-40 pointer-events-none" : ""}>
           <h3 className="text-footnote font-semibold text-graphite uppercase tracking-wider mb-3">Apariencia</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -269,19 +279,9 @@ export default function InspectorPanel() {
       </div>
 
       <div className="px-5 py-3 border-t border-silver-mist">
-        {generating ? (
-          <div className="flex items-center justify-center gap-2">
-            <svg className="animate-spin w-4 h-4 text-manfacter" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            <span className="text-footnote text-manfacter">Regenerando</span>
-          </div>
-        ) : (
-          <p className="text-footnote text-graphite/60 text-center">
-            {hasCode && paramEntries.length > 0 ? "Desliza para regenerar" : ""}
-          </p>
-        )}
+        <p className="text-footnote text-graphite/60 text-center">
+          {hasCode && paramEntries.length > 0 ? "Desliza para regenerar" : ""}
+        </p>
       </div>
     </motion.div>
   );
