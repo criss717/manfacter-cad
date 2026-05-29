@@ -5,6 +5,7 @@ ManfacterCAD Agent Server — WebSocket server wrapping the ADK agent.
 import asyncio
 import base64
 import json
+import os
 import sys
 import warnings
 from pathlib import Path
@@ -207,9 +208,10 @@ async def agent_session(websocket):
 
 
 async def main():
-    port = 8002
-    print(f"[AGENT] ADK Agent server starting on ws://127.0.0.1:{port}")
-    async with serve(agent_session, "127.0.0.1", port) as server:
+    host = os.environ.get("BACKEND_HOST", "127.0.0.1")
+    port = int(os.environ.get("GEMINI_AGENT_PORT", "8002"))
+    print(f"[AGENT] ADK Agent server starting on ws://{host}:{port}")
+    async with serve(agent_session, host, port) as server:
         await server.serve_forever()
 
 

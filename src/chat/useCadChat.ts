@@ -5,9 +5,10 @@ import { useCadStore, type ChatMessage } from "@/store/cadStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { autoSaveConversation } from "@/store/autoSave";
 
-const PORT_8002 = "ws://127.0.0.1:8002";
-const PORT_8003 = "ws://127.0.0.1:8003";
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_HOST = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "127.0.0.1";
+const PORT_8002 = `ws://${BACKEND_HOST}:8002`;
+const PORT_8003 = `ws://${BACKEND_HOST}:8003`;
+const BACKEND_URL = `http://${BACKEND_HOST}:8000`;
 
 const PROGRESS: Record<string, string> = {
   read_reference: "Consultando documentacion...",

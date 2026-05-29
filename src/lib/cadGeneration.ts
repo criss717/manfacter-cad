@@ -1,4 +1,6 @@
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_HOST
+  ? `http://${process.env.NEXT_PUBLIC_BACKEND_HOST}:8000`
+  : "http://127.0.0.1:8000";
 
 export async function runCadGeneration(code: string): Promise<{
   ok: boolean;
