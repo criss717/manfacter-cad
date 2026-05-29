@@ -115,6 +115,7 @@ export function loadProject(id: string): boolean {
 
     _currentProjectId = id;
 
+    const s = useCadStore.getState();
     useCadStore.setState({
       messages: restored,
       lastCode: snapshot.lastCode || null,
@@ -128,6 +129,7 @@ export function loadProject(id: string): boolean {
       sceneBackground: snapshot.sceneBackground || DEFAULT_BG,
       shapes: {},
       isProcessing: false,
+      viewportFocusKey: snapshot.glbUrl ? s.viewportFocusKey + 1 : s.viewportFocusKey,
     });
     return true;
   } catch {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, Suspense } from "react";
+import { useEffect, Suspense, useCallback, useRef } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
@@ -8,24 +8,46 @@ import { motion } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
 import ViewCube3D, { syncViewCube } from "./ViewCube3D";
 
+let _doZoom: (() => void) | null = null;
+
+export function triggerViewportZoom() {
+  if (_doZoom) { _doZoom(); return; }
+  let attempts = 0;
+  const retry = () => {
+    if (_doZoom) _doZoom();
+    else if (attempts < 20) { attempts++; setTimeout(retry, 100); }
+  };
+  retry();
+}
+
 function AutoZoom() {
   const { scene, camera, controls } = useThree() as {
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     controls: { target: THREE.Vector3; update: () => void } | null;
   };
+
   useEffect(() => {
-    if (!scene.children.length || !controls) return;
-    const box = new THREE.Box3().setFromObject(scene);
-    const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z, 1);
-    const dist = maxDim * 2.2;
-    const center = box.getCenter(new THREE.Vector3());
-    camera.position.set(center.x + dist * 0.7, center.y + dist * 0.5, center.z + dist * 0.7);
-    controls.target.copy(center);
-    controls.update();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    _doZoom = () => {
+      if (!controls) return;
+      const box = new THREE.Box3().setFromObject(scene);
+      if (box.isEmpty()) return;
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z, 1);
+      const dist = maxDim * 2.2;
+      const center = box.getCenter(new THREE.Vector3());
+      camera.position.set(center.x + dist * 0.7, center.y + dist * 0.5, center.z + dist * 0.7);
+      controls.target.copy(center);
+      controls.update();
+    };
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => _doZoom?.());
+    });
+
+    return () => { _doZoom = null; };
+  }, [scene, camera, controls]);
+
   return null;
 }
 
@@ -46,6 +68,8 @@ function GlbModel({ url, color }: { url: string; color: string }) {
       const box = new THREE.Box3().setFromObject(scene);
       const center = box.getCenter(new THREE.Vector3());
       scene.position.set(-center.x, -center.y, -center.z);
+
+      setTimeout(() => triggerViewportZoom(), 250);
     }
   }, [scene, color]);
   return scene ? <primitive object={scene} /> : null;
@@ -55,6 +79,25 @@ export default function CadExplorer() {
   const glbUrl = useCadStore((s) => s.glbUrl);
   const modelColor = useCadStore((s) => s.modelColor);
   const sceneBackground = useCadStore((s) => s.sceneBackground);
+  const viewportFocusKey = useCadStore((s) => s.viewportFocusKey);
+  const focusViewport = useCadStore((s) => s.focusViewport);
+  const prevGlbRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    triggerViewportZoom();
+  }, [viewportFocusKey]);
+
+  useEffect(() => {
+    if (glbUrl && glbUrl !== prevGlbRef.current) {
+      prevGlbRef.current = glbUrl;
+      setTimeout(() => triggerViewportZoom(), 400);
+    }
+    if (!glbUrl) prevGlbRef.current = null;
+  }, [glbUrl]);
+
+  const handleFocus = useCallback(() => {
+    focusViewport();
+  }, [focusViewport]);
 
   return (
     <motion.div
@@ -85,16 +128,33 @@ export default function CadExplorer() {
         )}
 
         <OrbitControls
+          makeDefault
           ref={syncViewCube}
           enableDamping
           dampingFactor={0.08}
           minDistance={5}
-          maxDistance={2000}
+          maxDistance={10000}
           target={[0, 0, 0]}
         />
       </Canvas>
 
-      {glbUrl && <ViewCube3D />}
+      {glbUrl && (
+        <>
+          <ViewCube3D />
+          <button
+            onClick={handleFocus}
+            className="absolute bottom-13 cursor-pointer right-23 z-10 w-8 h-8 rounded-lg bg-snow/90 backdrop-blur-sm border border-silver-mist flex items-center justify-center hover:bg-snow transition-colors shadow-sm"
+            title="Enfocar pieza"
+          >
+            <svg className="w-4 h-4 text-graphite" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
+              <circle cx="11" cy="11" r="7" />
+              <line x1="16.5" y1="16.5" x2="21" y2="21" />
+              <line x1="11" y1="8" x2="11" y2="14" />
+              <line x1="8" y1="11" x2="14" y2="11" />
+            </svg>
+          </button>
+        </>
+      )}
 
       {!glbUrl && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ background: sceneBackground }}>

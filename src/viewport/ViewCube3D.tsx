@@ -149,7 +149,7 @@ export default function ViewCube3D() {
       </div>
       <button
         onClick={goIso}
-        className="mt-8 w-full h-6 rounded-md text-[8px] font-semibold tracking-wider transition-all border border-[#d2d2d7] bg-silver-mist text-[#86868b] hover:text-ink hover:bg-[#dcdce0]"
+        className="mt-8 w-full h-6 cursor-pointer rounded-md text-[8px] font-semibold tracking-wider transition-all border border-[#d2d2d7] bg-silver-mist text-[#86868b] hover:text-ink hover:bg-[#dcdce0]"
         title="Vista isometrica"
       >
         ISO

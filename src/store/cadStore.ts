@@ -37,6 +37,7 @@ interface CadStore {
   resetSessionKey: number;
   cancelRequestKey: number;
   complexModalOpen: boolean;
+  viewportFocusKey: number;
 
   addMessage: (msg: ChatMessage) => void;
   setProcessing: (v: boolean) => void;
@@ -58,6 +59,7 @@ interface CadStore {
   bumpResetSession: () => void;
   bumpCancelRequest: () => void;
   setComplexModalOpen: (v: boolean) => void;
+  focusViewport: () => void;
 }
 
 export const useCadStore = create<CadStore>((set) => ({
@@ -87,6 +89,7 @@ export const useCadStore = create<CadStore>((set) => ({
   resetSessionKey: 0,
   cancelRequestKey: 0,
   complexModalOpen: false,
+  viewportFocusKey: 0,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
   setProcessing: (v) => set({ isProcessing: v }),
@@ -97,7 +100,7 @@ export const useCadStore = create<CadStore>((set) => ({
     return { shapes: { ...s.shapes, [id]: { ...shape, ...updates } } };
   }),
   setShapes: (shapes) => set({ shapes }),
-  setGlbUrl: (url) => set({ glbUrl: url }),
+  setGlbUrl: (url) => set((s) => ({ glbUrl: url, viewportFocusKey: url ? s.viewportFocusKey + 1 : s.viewportFocusKey })),
   setStepUrl: (url) => set({ stepUrl: url }),
   setStlUrl: (url) => set({ stlUrl: url }),
   addUrls: (glb, step, stl) => set((s) => ({
@@ -123,6 +126,7 @@ export const useCadStore = create<CadStore>((set) => ({
   bumpResetSession: () => set((s) => ({ resetSessionKey: s.resetSessionKey + 1 })),
   bumpCancelRequest: () => set((s) => ({ cancelRequestKey: s.cancelRequestKey + 1 })),
   setComplexModalOpen: (v) => set({ complexModalOpen: v }),
+  focusViewport: () => set((s) => ({ viewportFocusKey: s.viewportFocusKey + 1 })),
   clearScene: () => set((s) => ({
     shapes: {},
     messages: [
