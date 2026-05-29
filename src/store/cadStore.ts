@@ -146,6 +146,7 @@ export const useCadStore = create<CadStore>((set) => ({
     lastParams: {},
     modelColor: DEFAULT_COLOR,
     sceneBackground: DEFAULT_BG,
+    isProcessing: false,
     chatInputFocusKey: s.chatInputFocusKey + 1,
     resetSessionKey: s.resetSessionKey + 1,
   })),

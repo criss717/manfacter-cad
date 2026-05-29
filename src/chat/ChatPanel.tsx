@@ -27,11 +27,13 @@ export default function ChatPanel() {
   const focusKey = useCadStore((s) => s.chatInputFocusKey);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    if (typeof window !== "undefined" && window.innerWidth >= 768) {
+      inputRef.current?.focus();
+    }
   }, [focusKey]);
 
   useEffect(() => {
-    if (!isProcessing) {
+    if (!isProcessing && typeof window !== "undefined" && window.innerWidth >= 768) {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isProcessing]);

@@ -12,7 +12,7 @@ import {
 } from "@/store/autoSave";
 import ConfirmModal from "./ConfirmModal";
 
-export default function ProjectSidebar({ onClose }: { onClose?: () => void }) {
+export default function ProjectSidebar({ onClose, onNewChat }: { onClose?: () => void; onNewChat?: () => void }) {
   useCadStore((s) => s.projectRefreshKey);
   const isProcessing = useCadStore((s) => s.isProcessing);
   const bumpCancelRequest = useCadStore((s) => s.bumpCancelRequest);
@@ -26,6 +26,9 @@ export default function ProjectSidebar({ onClose }: { onClose?: () => void }) {
     if (isProcessing) {
       setConfirm({ type: "new" });
       return;
+    }
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      onNewChat?.();
     }
     bumpCancelRequest();
     newConversation();
