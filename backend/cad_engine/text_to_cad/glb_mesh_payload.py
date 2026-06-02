@@ -217,6 +217,62 @@ def prototype_glb_mesh_payload(
     )
 
 
+def mesh_cache_glb_mesh_payload(
+    mesh_cache: Any,
+    *,
+    default_color: ColorRGBA = DEFAULT_MATERIAL,
+) -> ShapeGlbMeshPayload:
+    """Build a ``ShapeGlbMeshPayload`` from a pre-computed Epic B ``MeshCache``.
+
+    Epic B replaces the dual ``BRepMesh_IncrementalMesh`` path with a single
+    ``_mesh_once`` call in ``cad_engine.generator``. The resulting
+    ``MeshCache`` (vertices/faces/normals as contiguous numpy arrays) can be
+    fed straight into the selector-side GLB pipeline without re-iterating
+    ``TopExp_Explorer`` over faces.
+
+    The whole mesh is emitted as a single face entry — face-level colouring
+    is not preserved here because the cache stores the merged triangulation
+    rather than per-face buckets. Callers needing per-face colours must keep
+    using :func:`shape_glb_mesh_payload`.
+    """
+    vertices = getattr(mesh_cache, "vertices", None)
+    faces = getattr(mesh_cache, "faces", None)
+    normals = getattr(mesh_cache, "normals", None)
+    if vertices is None or faces is None:
+        return _empty_payload()
+    if len(vertices) == 0 or len(faces) == 0:
+        return _empty_payload()
+
+    nodes = [
+        [float(vertices[i][0]), float(vertices[i][1]), float(vertices[i][2])]
+        for i in range(len(vertices))
+    ]
+    if normals is not None and len(normals) == len(vertices):
+        node_normals = [
+            (float(normals[i][0]), float(normals[i][1]), float(normals[i][2]))
+            for i in range(len(normals))
+        ]
+    else:
+        node_normals = [(0.0, 0.0, 1.0)] * len(nodes)
+
+    triangles = [
+        (int(faces[i][0]), int(faces[i][1]), int(faces[i][2]))
+        for i in range(len(faces))
+    ]
+
+    face_entry = {
+        "shapeHash": 0,
+        "triangleNodes": nodes,
+        "triangleNormals": node_normals,
+        "triangles": triangles,
+    }
+    return prototype_glb_mesh_payload(
+        {"faces": [face_entry]},
+        default_color=normalize_rgba(default_color),
+        face_colors={},
+    )
+
+
 def shape_glb_mesh_payload(
     shape: object,
     *,

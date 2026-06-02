@@ -21,7 +21,15 @@ from websockets.asyncio.server import serve
 from google.adk import Runner
 from google.adk.sessions import InMemorySessionService
 from agent.agent import cad_agent
-from agent.tools import _current_session_id, _attempt_counts
+from agent.feature_flags import is_epic_a_enabled
+from agent.prompt import GOTCHAS_VERSION, assemble_prompt
+from agent.tools import (
+    _attempt_counts,
+    _current_session_id,
+    _current_tier,
+    release_session_resources,
+    set_expected_dims,
+)
 
 def handler(signum, frame):
     print(f"[AGENT] Signal {signum} received, shutting down.")
@@ -35,6 +43,13 @@ SESSION_SERVICE = InMemorySessionService()
 async def process_user_message(websocket, user_text: str, user_id: str, session_id: str, image_data: str | None = None):
     """Run the ADK agent and stream events back. Retries on connection errors."""
     import time
+
+    augmented_text, tier = assemble_prompt(user_text)
+    _current_tier.set(tier)
+    print(
+        f"[AGENT] TIER={tier} epic_a={is_epic_a_enabled()} "
+        f"gotchas_v={GOTCHAS_VERSION} session={session_id[:12]}"
+    )
 
     max_retries = 5
     for attempt in range(max_retries):
@@ -59,7 +74,7 @@ async def process_user_message(websocket, user_text: str, user_id: str, session_
                 session_service=SESSION_SERVICE,
             )
 
-            parts = [genai_types.Part.from_text(text=user_text)]
+            parts = [genai_types.Part.from_text(text=augmented_text)]
             if image_data:
                 try:
                     if "," in image_data:
@@ -88,7 +103,7 @@ async def process_user_message(websocket, user_text: str, user_id: str, session_
                 if author and str(author) == "user":
                     continue
 
-                evt: dict = {"type": "agent_event"}
+                evt: dict = {"type": "agent_event", "tier": tier}
 
                 event_content = getattr(event, 'content', None)
                 if event_content:
@@ -129,7 +144,7 @@ async def process_user_message(websocket, user_text: str, user_id: str, session_
 
             print(f"[AGENT] Runner completed, sending done")
             try:
-                await websocket.send(json.dumps({"type": "done"}))
+                await websocket.send(json.dumps({"type": "done", "tier": tier}))
             except Exception:
                 print(f"[AGENT] Could not send done (client disconnected)")
             return
@@ -137,7 +152,7 @@ async def process_user_message(websocket, user_text: str, user_id: str, session_
         except GeneratorExit:
             print(f"[AGENT] GeneratorExit (normal)")
             try:
-                await websocket.send(json.dumps({"type": "done"}))
+                await websocket.send(json.dumps({"type": "done", "tier": tier}))
             except Exception:
                 pass
             return
@@ -167,6 +182,7 @@ async def agent_session(websocket):
     # Persistent session ID per connection - keeps conversation context
     session_id = f"ag_{client}_{id(websocket)}"
     sessions: dict = {}
+    used_sids: set[str] = set()
 
     async for raw in websocket:
         try:
@@ -191,7 +207,15 @@ async def agent_session(websocket):
         sid = client_sid
 
         _current_session_id.set(sid)
+        _current_tier.set("MODERATE")
         _attempt_counts[sid] = 0
+        used_sids.add(sid)
+
+        expected_dims = set_expected_dims(sid, user_text)
+        if expected_dims:
+            print(
+                f"[AGENT] EXPECTED_DIMS session={sid[:12]} keys={sorted(expected_dims.keys())}"
+            )
 
         print(f"[AGENT] MESSAGE #{msg_counter} (session={sid[:12]}): {user_text[:80]}...")
 
@@ -204,6 +228,17 @@ async def agent_session(websocket):
             except Exception:
                 break
 
+    try:
+        cleanup_targets = used_sids | {session_id}
+        for sid in cleanup_targets:
+            try:
+                release_session_resources(sid)
+            except Exception as per_sid_err:
+                print(
+                    f"[AGENT] cleanup error for {sid[:12]}: {per_sid_err}"
+                )
+    except Exception as cleanup_err:
+        print(f"[AGENT] cleanup error: {cleanup_err}")
     print(f"[AGENT] DISCONNECT from={client}")
 
 

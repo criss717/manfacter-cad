@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useCadStore, type ChatMessage } from "@/store/cadStore";
+import { useCadStore, type CadTier, type ChatMessage } from "@/store/cadStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { autoSaveConversation } from "@/store/autoSave";
 
@@ -30,6 +30,14 @@ const PROGRESS: Record<string, string> = {
   make_snapshot: "Renderizando vista previa...",
   list_outputs: "Listando archivos...",
 };
+
+const VALID_TIERS: ReadonlySet<CadTier> = new Set<CadTier>(["SIMPLE", "MODERATE", "COMPLEX"]);
+
+function parseTier(value: unknown): CadTier | undefined {
+  if (typeof value !== "string") return undefined;
+  const upper = value.toUpperCase() as CadTier;
+  return VALID_TIERS.has(upper) ? upper : undefined;
+}
 
 export function useCadChat() {
   const messages = useCadStore((s) => s.messages);
@@ -127,6 +135,7 @@ export function useCadChat() {
 
       let responseText = "";
       let attemptCount = 0;
+      let currentTier: CadTier | undefined;
 
       try {
         const ws = await ensureConnection();
@@ -174,8 +183,17 @@ export function useCadChat() {
                 done = true; clearTimeout(fallbackTimeout);
                 setStreamingText("");
                 setComplexModalOpen(false);
+                const tierFromDone = parseTier(msg.tier);
+                if (tierFromDone) currentTier = tierFromDone;
                 if (responseText) {
-                  addMessage({ id: `msg_${Date.now()}_ai`, role: "assistant", content: responseText.trim(), timestamp: Date.now() });
+                  const finalMsg: ChatMessage = {
+                    id: `msg_${Date.now()}_ai`,
+                    role: "assistant",
+                    content: responseText.trim(),
+                    timestamp: Date.now(),
+                  };
+                  if (currentTier) finalMsg.tier = currentTier;
+                  addMessage(finalMsg);
                 }
                 ws.removeEventListener("message", handler);
                 resolve();
@@ -183,6 +201,8 @@ export function useCadChat() {
               }
 
               if (msg.type === "agent_event") {
+                const tierFromEvent = parseTier(msg.tier);
+                if (tierFromEvent) currentTier = tierFromEvent;
                 if (msg.tool_call) {
                   if (msg.tool_call.name === "run_cad_code") {
                     attemptCount++;

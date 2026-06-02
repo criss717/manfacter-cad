@@ -2,12 +2,15 @@ import { create } from "zustand";
 
 export type MessageRole = "user" | "assistant" | "system";
 
+export type CadTier = "SIMPLE" | "MODERATE" | "COMPLEX";
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
   timestamp: number;
   image?: string;
+  tier?: CadTier;
 }
 
 export interface CadParams {

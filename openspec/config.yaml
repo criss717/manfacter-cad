@@ -1,0 +1,58 @@
+schema: spec-driven
+
+context: |
+  Manfacter CAD — AI-powered 3D CAD generation (text/image → STEP/STL/GLB).
+  Frontend: Next.js 16.2 (App Router, Turbopack), React 19, TypeScript 5, R3F, Zustand, Tailwind CSS 4.
+  Backend: Python 3.11+, FastAPI, build123d/OpenCASCADE, Google ADK (Gemini), WebSocket session persistence.
+  Database: PostgreSQL via Drizzle ORM. Auth: next-auth 5 beta.
+  Spanish-first UI. Comportable Apple-style design. Multi-format export, repair loop (13 retries).
+
+strict_tdd: false
+
+testing:
+  runner:
+    command: ""
+    framework: "none"
+  layers:
+    unit: false
+    integration: false
+    e2e: false
+  coverage:
+    available: false
+    command: ""
+  quality:
+    linter:
+      available: true
+      command: "pnpm lint"
+    type_checker:
+      available: true
+      command: "npx tsc --noEmit"
+    formatter:
+      available: false
+      command: ""
+
+rules:
+  proposal:
+    - Keep scope under 400 changed lines per PR
+    - Include rollback plan for risky changes
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Document architecture decisions with rationale
+    - Include sequence diagrams for multi-service flows (WS + HTTP + ADK)
+  tasks:
+    - Group by phase: backend, frontend, integration
+    - Keep tasks completable in one session
+  apply:
+    - Follow existing code patterns (Zustand stores, App Router conventions, FastAPI endpoints)
+    - Python: type hints required. TypeScript: strict mode
+    tdd: false
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: "pnpm build"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+    - Update main specs before archiving

@@ -5,7 +5,7 @@ import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCadChat } from "./useCadChat";
 import { useSettingsStore } from "@/store/settingsStore";
-import { useCadStore } from "@/store/cadStore";
+import { useCadStore, type CadTier } from "@/store/cadStore";
 
 const PROVIDERS = [
   { id: "gemini", label: "Gemini 3.5 Flash", disabled: false },
@@ -14,6 +14,25 @@ const PROVIDERS = [
   { id: "kimi", label: "Kimi K2.6 — Próximamente", disabled: true },
   { id: "openai", label: "GPT-4o — Próximamente", disabled: true },
 ] as const;
+
+const TIER_BADGE_STYLES: Record<CadTier, string> = {
+  SIMPLE: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+  MODERATE: "bg-amber-100 text-amber-700 border border-amber-200",
+  COMPLEX: "bg-rose-100 text-rose-700 border border-rose-200",
+};
+
+function TierBadge({ tier }: { tier?: CadTier }) {
+  if (!tier) return null;
+  const styles = TIER_BADGE_STYLES[tier];
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 mb-1 rounded-md text-[10px] font-semibold tracking-wide uppercase ${styles}`}
+      title={`Clasificación del agente: ${tier}`}
+    >
+      {tier}
+    </span>
+  );
+}
 
 export default function ChatPanel() {
   const { messages, sendMessage, cancel, isProcessing, streamingText } = useCadChat();
@@ -150,6 +169,7 @@ export default function ChatPanel() {
                     : "bg-fog text-ink rounded-bl-md"
                 }`}
               >
+                {msg.role === "assistant" && <TierBadge tier={msg.tier} />}
                 {msg.image && (
                   <Image
                     src={msg.image}

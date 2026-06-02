@@ -1,6 +1,230 @@
-"""Agent instruction prompt for ManfacterCAD — API pre-loaded, references on-demand."""
+"""Agent instruction prompt for ManfacterCAD — API pre-loaded, references on-demand.
 
-CAD_AGENT_PROMPT = """You are an expert CAD engineer for Manfacter. Create precise 3D parts for manufacturing.
+Epic A additions (gated by ``EPIC_A_ENABLED``):
+
+- :data:`GOTCHAS` versioned block injected before ``## RESPONSE RULES``.
+- :func:`classify_tier` keyword heuristic returning ``SIMPLE``/``MODERATE``/``COMPLEX``.
+- :func:`build_tier_directive` produces a per-request directive (reference policy,
+  mandatory snapshot) the server prepends to the user message.
+- :func:`assemble_prompt` is the public entry point used by the WebSocket server.
+
+Epic C additions (gated by ``EPIC_C_ENABLED``):
+
+- :func:`extract_expected_dims` parses the user request for triple L×W×H,
+  M-bolt diameters, and named ``mm <feature>`` measurements and stores the
+  result in the session-local ``_last_expected_dims`` map so the inspection
+  tool can validate the generated geometry against the request.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from typing import Literal
+
+from agent.feature_flags import is_epic_a_enabled, is_epic_c_enabled
+
+logger = logging.getLogger(__name__)
+
+Tier = Literal["SIMPLE", "MODERATE", "COMPLEX"]
+
+GOTCHAS_VERSION = "1"
+
+TIER_DEFLECTION: dict[Tier, tuple[float, float]] = {
+    "SIMPLE": (0.1, 0.8),
+    "MODERATE": (0.05, 0.5),
+    "COMPLEX": (0.02, 0.3),
+}
+
+SIMPLE_KEYWORDS: frozenset[str] = frozenset({
+    "box", "cube", "block", "caja", "cubo", "bloque",
+    "cylinder", "cilindro", "rod", "varilla", "tube", "tubo", "pipe", "tuberia", "tubería",
+    "shaft", "eje", "pin", "dowel", "axle", "perno",
+    "sphere", "esfera", "ball", "bola", "dome", "domo",
+    "plate", "placa", "spacer", "separador", "washer", "arandela", "shim", "lamina",
+    "bracket", "escuadra", "soporte",
+    "flange", "brida",
+    "gasket", "junta",
+})
+
+COMPLEX_KEYWORDS: frozenset[str] = frozenset({
+    "gear", "gears", "engranaje", "engranajes", "teeth", "dientes",
+    "sprocket", "pinion", "pinon", "piñón", "piñon",
+    "helical", "helicoidal", "helice", "hélice", "helix",
+    "spiral", "espiral",
+    "thread", "rosca", "screw_thread",
+    "spring", "muelle", "resorte",
+    "sweep", "loft", "revolve", "revolución", "revolucion", "revolution",
+    "turbine", "turbina", "impeller", "blade", "propeller",
+    "cam", "leva", "geneva", "ratchet", "escapement",
+    "spline", "bezier",
+    "shell", "hollow", "hueco", "ahuecar", "ahueca",
+    "emboss", "debossing", "relieve", "grabado",
+    "assembly", "ensamblaje", "ensamble", "ensamblar",
+    "buildpart", "buildsketch", "buildline", "buildsurface",
+    "polarlocations", "hexlocations", "gridlocations",
+})
+
+FEATURE_KEYWORDS: frozenset[str] = frozenset({
+    "hole", "holes", "agujero", "agujeros", "perforacion", "perforación",
+    "slot", "slots", "ranura", "ranuras",
+    "boss", "bosses", "saliente", "salientes",
+    "rib", "ribs", "refuerzo", "refuerzos", "nervadura", "nervaduras",
+    "fillet", "fillets", "redondeo", "redondeos",
+    "chamfer", "chamfers", "chaflan", "chaflán", "chaflanes",
+    "counterbore", "counterbores", "countersink", "avellanado", "avellanados",
+    "bolt", "bolts", "tornillo", "tornillos", "screw", "screws",
+    "mount", "mounts", "mounting",
+    "pocket", "pockets", "cajera", "cajeras",
+    "groove", "grooves", "canal", "canales",
+    "thread", "threads",
+    "cutout", "cutouts", "corte", "cortes",
+    "tooth", "teeth", "diente", "dientes",
+    "keyway", "chavetero",
+    "tab", "tabs",
+})
+
+_PATTERN_HINTS: tuple[str, ...] = (
+    "pattern", "array", "patron", "patrón", "matrix", "matriz",
+    "polarlocations", "hexlocations", "gridlocations",
+)
+
+_TOKEN_RE = re.compile(r"[\w\-]+", re.UNICODE)
+_NUMBER_NEAR_FEATURE_RE = re.compile(
+    r"\b(\d{1,3})\b\s+(?:[\wáéíóúñ]+\s+){0,3}?([\wáéíóúñ]+)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _tokens(text: str) -> list[str]:
+    return [t.lower() for t in _TOKEN_RE.findall(text)]
+
+
+def classify_tier(text: str) -> Tier:
+    """Classify a user request into SIMPLE/MODERATE/COMPLEX using keyword heuristics.
+
+    The classifier is pure: same input always yields the same output. When
+    ``EPIC_A_ENABLED`` is off the function short-circuits to ``MODERATE``
+    so downstream behaviour matches the pre-Epic-A baseline.
+
+    Rules (first match wins):
+
+    1. COMPLEX if a ``COMPLEX_KEYWORDS`` token is present, the request text
+       exceeds 400 characters without any ``SIMPLE_KEYWORDS`` token, the
+       estimated code length exceeds 60 lines, or ``distinct_features >= 12``.
+    2. SIMPLE if a ``SIMPLE_KEYWORDS`` token is present, no pattern hint is
+       used, ``distinct_features <= 1`` and the estimated code length is
+       under 50 lines.
+    3. MODERATE otherwise. Ambiguous cases (simple keyword + multiple
+       distinct features, or a pattern hint) are logged for review.
+    """
+    if not is_epic_a_enabled():
+        return "MODERATE"
+
+    text_lower = text.lower()
+    tokens = _tokens(text)
+    token_set = set(tokens)
+
+    has_simple = bool(token_set & SIMPLE_KEYWORDS) or any(
+        marker in text_lower for marker in ("l-bracket", "t-bracket", "angle bracket")
+    )
+    has_complex = bool(token_set & COMPLEX_KEYWORDS) or any(
+        marker in text_lower
+        for marker in ("buildpart", "buildsketch", "buildline", "buildsurface")
+    )
+
+    feature_tokens = [t for t in tokens if t in FEATURE_KEYWORDS]
+    distinct_features = len({t for t in feature_tokens})
+
+    numeric_feature_count = 0
+    for match in _NUMBER_NEAR_FEATURE_RE.finditer(text_lower):
+        try:
+            n = int(match.group(1))
+        except ValueError:
+            continue
+        if 0 < n < 100 and match.group(2) in FEATURE_KEYWORDS:
+            numeric_feature_count = max(numeric_feature_count, n)
+
+    has_pattern = any(hint in text_lower for hint in _PATTERN_HINTS)
+
+    est_lines = 12 + distinct_features * 6 + numeric_feature_count + (10 if has_pattern else 0)
+
+    if has_complex:
+        tier: Tier = "COMPLEX"
+        reason = "complex_keyword"
+    elif est_lines > 60:
+        tier = "COMPLEX"
+        reason = f"est_lines={est_lines}>60"
+    elif len(text) > 400 and not has_simple:
+        tier = "COMPLEX"
+        reason = f"long_no_simple_kw={len(text)}"
+    elif distinct_features >= 12:
+        tier = "COMPLEX"
+        reason = f"distinct_features={distinct_features}>=12"
+    elif (
+        has_simple
+        and distinct_features <= 1
+        and not has_pattern
+        and est_lines < 50
+    ):
+        tier = "SIMPLE"
+        reason = "simple_kw_minimal"
+    else:
+        tier = "MODERATE"
+        reason = (
+            f"default | simple={has_simple} complex={has_complex} "
+            f"distinct={distinct_features} pattern={has_pattern}"
+        )
+        ambiguous = has_simple and (distinct_features >= 2 or has_pattern)
+        if ambiguous:
+            logger.info(
+                "[TIER] AMBIGUOUS -> MODERATE | distinct=%d pattern=%s len=%d text=%s",
+                distinct_features,
+                has_pattern,
+                len(text),
+                text[:120],
+            )
+
+    logger.debug(
+        "[TIER] %s (%s) | distinct=%d est_lines=%d numeric=%d",
+        tier,
+        reason,
+        distinct_features,
+        est_lines,
+        numeric_feature_count,
+    )
+    return tier
+
+
+GOTCHAS = """## GOTCHAS (v{version}) — Top build123d patterns
+
+### Plane enum (CRITICAL)
+Solo existen `Plane.XY`, `Plane.YZ`, `Plane.XZ`.
+NUNCA uses `Plane.XN`, `Plane.XP`, `Plane.YN`, `Plane.YP`, `Plane.ZN`, `Plane.ZP` — no existen.
+
+### edges() / faces() son MÉTODOS, no atributos
+`shape.edges()` y `shape.faces()` REQUIEREN paréntesis.
+`shape.edges` (sin paréntesis) devuelve el método y rompe el pipeline.
+
+### Firma de fillet
+- Sobre un sólido: `shape.fillet(radius, [edge_list])` — los edges van como LISTA.
+- Función global: `fillet(objects=edge_list, radius=value)`.
+NUNCA invertir el orden ni pasar un solo edge sin envolverlo en `[...]`.
+
+### MATERIAL REMOVAL (causa #1 de fallos)
+- Las herramientas de corte DEBEN sobrepasar el target: `Cylinder(r, depth + 1.0)`.
+- Aplica filetes/chaflanes ANTES de los agujeros y cortes.
+- Tras un corte, usa `max_fillet()` para hallar el radio máximo seguro.
+- En `a - b`, `b` debe atravesar completamente a `a` para garantizar el corte.
+
+### MANUFACTURING (FDM / impresión 3D)
+- Pared mínima: `shell`/`hollow` debe dejar ≥ 1.0 mm de espesor.
+- Clearance: caras y agujeros que ensamblan requieren +0.2 mm de holgura.
+- Espesores < 0.8 mm no imprimen de forma fiable; reescala si hace falta.
+""".format(version=GOTCHAS_VERSION)
+
+
+_PROMPT_HEADER = """You are an expert CAD engineer for Manfacter. Create precise 3D parts for manufacturing.
 
 ## WHEN TO GENERATE CAD vs CONVERSATION
 
@@ -179,8 +403,10 @@ Common gotchas:
 - from build123d import * always at the top.
 - def gen_step(): always defined, returning the shape.
 - For assemblies: ALL parts in one gen_step() using Compound(children=[...])
+"""
 
-## RESPONSE RULES
+
+_PROMPT_FOOTER = """## RESPONSE RULES
 
 1. ALWAYS respond in Spanish. 2-3 concise sentences only.
 2. State what you created with key dimensions.
@@ -188,3 +414,201 @@ Common gotchas:
 4. NEVER use markdown, code blocks, or lists.
 5. NEVER explain your workflow step by step.
 """
+
+
+def _build_full_prompt() -> str:
+    """Compose the agent instruction string honouring ``EPIC_A_ENABLED``.
+
+    Read at module import time. The GOTCHAS block is appended between the
+    workflow body and the response rules, matching the prompt-quality spec.
+    """
+    if is_epic_a_enabled():
+        return f"{_PROMPT_HEADER}\n{GOTCHAS}\n{_PROMPT_FOOTER}"
+    return f"{_PROMPT_HEADER}\n{_PROMPT_FOOTER}"
+
+
+CAD_AGENT_PROMPT = _build_full_prompt()
+
+
+def build_tier_directive(tier: Tier) -> str:
+    """Return the per-request directive text for the classified tier.
+
+    The directive is prepended to the user message so the agent sees the
+    routing rules alongside the request itself. The text is intentionally
+    short — the heavy lifting (workflow rules, API cheatsheet) already
+    lives in :data:`CAD_AGENT_PROMPT`.
+    """
+    if tier == "SIMPLE":
+        return (
+            "[CLASSIFIER NOTE — TIER: SIMPLE]\n"
+            "- Reference policy: NO references needed. Use the API cheatsheet from your system prompt.\n"
+            "- Snapshot: not required.\n"
+            "- Mesh deflection: coarse (0.1 mm linear, 0.8 angular).\n"
+        )
+    if tier == "COMPLEX":
+        return (
+            "[CLASSIFIER NOTE — TIER: COMPLEX]\n"
+            "- Reference policy: MANDATORY — call read_reference(\"build123d-modeling.md\") FIRST.\n"
+            "- MANDATORY_SNAPSHOT: after a successful inspect_geometry you MUST call "
+            "make_snapshot(step_path) before reporting back to the user.\n"
+            "- Mesh deflection: fine (0.02 mm linear, 0.3 angular).\n"
+        )
+    return (
+        "[CLASSIFIER NOTE — TIER: MODERATE]\n"
+        "- Reference policy: NO references needed (API cheatsheet in system prompt).\n"
+        "- Snapshot: optional unless visual ambiguity is detected.\n"
+        "- Mesh deflection: default (0.05 mm linear, 0.5 angular).\n"
+    )
+
+
+def assemble_prompt(user_text: str) -> tuple[str, Tier]:
+    """Public helper used by the agent server.
+
+    Returns a tuple ``(augmented_user_text, tier)``:
+
+    - ``augmented_user_text`` is the user message with the tier directive
+      prepended when Epic A is enabled, or the original text otherwise.
+    - ``tier`` is the resolved tier (always ``MODERATE`` when Epic A is
+      disabled, per :func:`classify_tier`).
+    """
+    tier = classify_tier(user_text)
+    if not is_epic_a_enabled():
+        return user_text, tier
+    directive = build_tier_directive(tier)
+    return f"{directive}\nUser request: {user_text}", tier
+
+
+DIMENSIONAL_THRESHOLD = 0.20
+
+_TRIPLE_DIM_RE = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(\d+(?:\.\d+)?)"
+    r"(?:\s*(?:[xX×]|by|por)\s*|\s+(?:by|por|and)\s+)(\d+(?:\.\d+)?)"
+    r"(?:\s*(?:[xX×]|by|por)\s*|\s+(?:by|por|and)\s+)(\d+(?:\.\d+)?)"
+    r"(?:\s*(mm|millimet\w*|milimetr\w*|cm))?",
+    re.IGNORECASE | re.UNICODE,
+)
+
+_M_BOLT_RE = re.compile(r"(?<![A-Za-z0-9])M(\d+(?:\.\d+)?)\b", re.IGNORECASE)
+
+_NAMED_MM_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*mm\s+(?:de\s+|diameter|radius|radio|length|longitud|"
+    r"width|ancho|height|altura|depth|profundidad|groove|channel|long\b)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+_BOLT_CONTEXT_RE = re.compile(
+    r"\b(bolt|tornillo|screw|perno|rosca)\b", re.IGNORECASE | re.UNICODE
+)
+
+_NAMED_FIELD_MAP: dict[str, str] = {
+    "diameter": "diameter",
+    "radius": "radius",
+    "radio": "radius",
+    "length": "length",
+    "longitud": "length",
+    "long": "length",
+    "width": "width",
+    "ancho": "width",
+    "height": "height",
+    "altura": "height",
+    "depth": "depth",
+    "profundidad": "depth",
+    "groove": "groove",
+    "channel": "groove",
+}
+
+
+def extract_expected_dims(text: str) -> dict | None:
+    """Extract expected dimensions from the user request.
+
+    Returns a dict describing the dimensions the user asked for, or
+    ``None`` when no recognisable measurement is present. The function
+    is a pure helper (no I/O) so the agent server can cache results in
+    the session-local ``_last_expected_dims`` map.
+
+    Supported patterns (Epic C, task C4):
+
+    - ``L x W x H`` triples (e.g. ``"100x60x20 mm plate"``) → ``{"x": L,
+      "y": W, "z": H}`` in millimetres. ``x``/``y``/``z`` map directly
+      onto the inspection bbox so the dimensional check in
+      :mod:`cad_engine.inspect` can compute per-axis deviations.
+    - ``M<diameter>`` followed by a bolt/tornillo keyword (or standing
+      alone when the word "bolt" / "tornillo" / "screw" appears within
+      the same request) → ``{"diameter": D}`` in millimetres. Length
+      is captured separately when a named ``mm length`` follows.
+    - ``<N> mm <feature>`` (e.g. ``"8 mm diameter"``) → ``{"diameter":
+      N}`` / ``{"length": N}`` etc. Field name resolution handles both
+      English and Spanish keywords.
+
+    The function is a no-op (returns ``None``) when ``EPIC_C_ENABLED``
+    is false so the legacy path keeps shipping ``code`` in events and
+    skips the dimensional check entirely.
+    """
+    if not is_epic_c_enabled():
+        return None
+    if not text:
+        return None
+
+    result: dict[str, float] = {}
+
+    triple = _TRIPLE_DIM_RE.search(text)
+    if triple:
+        try:
+            result["x"] = float(triple.group(1))
+            result["y"] = float(triple.group(2))
+            result["z"] = float(triple.group(3))
+        except (TypeError, ValueError):
+            pass
+
+    bolt_match = _M_BOLT_RE.search(text)
+    if bolt_match:
+        has_bolt_word = bool(_BOLT_CONTEXT_RE.search(text))
+        triple_in_window = triple is not None
+        if has_bolt_word or triple_in_window or len(text) < 200:
+            try:
+                result["diameter"] = float(bolt_match.group(1))
+            except (TypeError, ValueError):
+                pass
+
+    for match in _NAMED_MM_RE.finditer(text):
+        try:
+            value = float(match.group(1))
+        except (TypeError, ValueError):
+            continue
+        feature_text = match.group(0).lower()
+        for needle, field in _NAMED_FIELD_MAP.items():
+            if needle in feature_text:
+                result.setdefault(field, value)
+                break
+
+    if not result:
+        logger.info(
+            "[DIMS] SKIP | no extractable dimensions from request (len=%d)",
+            len(text),
+        )
+        return None
+
+    logger.info(
+        "[DIMS] extracted=%s | text=%s",
+        sorted(result.keys()),
+        text[:80].replace("\n", " "),
+    )
+    return result
+
+
+__all__ = [
+    "CAD_AGENT_PROMPT",
+    "COMPLEX_KEYWORDS",
+    "DIMENSIONAL_THRESHOLD",
+    "FEATURE_KEYWORDS",
+    "GOTCHAS",
+    "GOTCHAS_VERSION",
+    "SIMPLE_KEYWORDS",
+    "TIER_DEFLECTION",
+    "Tier",
+    "assemble_prompt",
+    "build_tier_directive",
+    "classify_tier",
+    "extract_expected_dims",
+]
