@@ -44,6 +44,23 @@ def _create_bin_xcaf_doc(to_export: Any) -> Any:
         ta,
     )
 
+    # Defensive: gen_step() may return a ShapeList of multiple solids
+    # instead of a single Part/Compound. The downstream code expects
+    # ``.wrapped`` and ``PreOrderIter`` compatibility, both of which
+    # require a Compound. Wrap any non-Compound iterable so the
+    # assembly label/colour pipeline and AddShape() call work uniformly.
+    if not isinstance(to_export, Compound):
+        try:
+            to_export = Compound(list(to_export))
+        except TypeError as exc:
+            raise TypeError(
+                f"_create_bin_xcaf_doc: cannot export object of type "
+                f"{type(to_export).__name__!r}; expected Part, Compound, or "
+                f"an iterable of build123d shapes. Make sure gen_step() "
+                f"returns a Part/Compound (or a list of them) instead of a "
+                f"raw ShapeList. Original error: {exc}"
+            ) from exc
+
     doc = create_bin_xcaf_doc()
     shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
     color_tool = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
