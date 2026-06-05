@@ -26,6 +26,7 @@
 
 .agent/
 DESIGN.md
+session-ses_1766.md
 
 # debug
 npm-debug.log*
@@ -45,3 +46,6 @@ AGENTS.md
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# scripts
+scripts/.metrics_check_state.json

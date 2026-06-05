@@ -333,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         "--regression",
         type=float,
         default=DEFAULT_REGRESSION,
-        help="Fractional regression threshold (default 0.05 = 5%)",
+        help="Fractional regression threshold (default 0.05 = 5%%)",
     )
     parser.add_argument(
         "--baseline",
