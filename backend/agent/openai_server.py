@@ -1,10 +1,14 @@
 """
-ManfacterCAD OpenAI Agent Server — WebSocket server wrapping DeepSeek/GLM/Kimi
-via the OpenAI-compatible API (OpenCode Go).
+ManfacterCAD OpenAI Agent Server — WebSocket server supporting multiple providers
+via OpenCode Zen:
+  - chat/completions      (minimax, glm, kimi, deepseek)
+  - Anthropic messages    (claude-sonnet, claude-opus, qwen)
+  - Google AI SDK         (gemini-3.1-pro via Zen :generateContent endpoint)
+
+Follows the same session / tier / expected-dims pattern as server.py (ADK).
 """
 
 import asyncio
-import base64
 import json
 import os
 import sys
@@ -14,9 +18,12 @@ import signal
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
 def handle_exit(*args):
     print(f"[OPENAI] Received exit signal ({args}), shutting down...")
     sys.exit(0)
+
+
 signal.signal(signal.SIGINT, handle_exit)
 signal.signal(signal.SIGTERM, handle_exit)
 
@@ -37,11 +44,48 @@ import websockets
 from websockets.asyncio.server import serve
 from openai import AsyncOpenAI
 
-from agent.tools import run_cad_code, inspect_geometry, read_reference, list_outputs, make_snapshot
-from agent.prompt import CAD_AGENT_PROMPT
+from agent.tools import (
+    run_cad_code,
+    inspect_geometry,
+    read_reference,
+    list_outputs,
+    make_snapshot,
+    _attempt_counts,
+    _current_session_id,
+    _current_tier,
+    release_session_resources,
+    set_expected_dims,
+)
+from agent.prompt import CAD_AGENT_PROMPT, assemble_prompt
 
-env_file = Path(__file__).parent.parent.parent / ".env"
+# ── Zen base URLs ──────────────────────────────────────────────────────────────
+ZEN_BASE = "https://opencode.ai/zen/v1"
 
+# ── Model registry ─────────────────────────────────────────────────────────────
+# api: "chat"     → OpenAI-compatible /chat/completions
+#      "messages" → Anthropic /messages  (Claude, Qwen)
+#      "gemini"   → Google AI SDK :generateContent via Zen (gemini-pro)
+MODEL_CONFIGS: dict[str, dict] = {
+    # ── Chat / completions ──────────────────────────────────────────────
+    "minimax":               {"model": "minimax-m2.7",             "api": "chat"},
+    "glm":                   {"model": "glm-5.1",                  "api": "chat"},
+    "kimi":                  {"model": "kimi-k2.6",                "api": "chat"},
+    "deepseek":              {"model": "deepseek-v4-flash",        "api": "chat"},
+    # ── Free Zen models (OpenAI-compatible) ───────────────────────────
+    "mimo-v2.5-free":        {"model": "mimo-v2.5-free",           "api": "chat"},
+    "deepseek-v4-flash-free":{"model": "deepseek-v4-flash-free",   "api": "chat"},
+    "nemotron-3-ultra-free": {"model": "nemotron-3-ultra-free",    "api": "chat"},
+    # ── Anthropic Messages API ───────────────────────────────────────────
+    "sonnet":   {"model": "claude-sonnet-4-6",  "api": "messages"},
+    "opus":     {"model": "claude-opus-4-8",    "api": "messages"},
+    "qwen":     {"model": "qwen3.7-max",         "api": "messages"},
+    # ── Gemini via OpenCode Zen (Google AI SDK protocol) ─────────────────
+    "gemini-pro": {"model": "gemini-3.1-pro",   "api": "gemini"},
+}
+
+DEFAULT_PROVIDER = "glm"
+
+# ── Tool definitions (OpenAI format) ──────────────────────────────────────────
 TOOLS = [
     {
         "type": "function",
@@ -53,9 +97,9 @@ TOOLS = [
                 "properties": {
                     "name": {"type": "string", "description": "Filename (e.g. 'build123d-modeling.md', 'repair-loop.md')"}
                 },
-                "required": ["name"]
-            }
-        }
+                "required": ["name"],
+            },
+        },
     },
     {
         "type": "function",
@@ -67,9 +111,9 @@ TOOLS = [
                 "properties": {
                     "code": {"type": "string", "description": "Python code with gen_step()"}
                 },
-                "required": ["code"]
-            }
-        }
+                "required": ["code"],
+            },
+        },
     },
     {
         "type": "function",
@@ -81,17 +125,17 @@ TOOLS = [
                 "properties": {
                     "step_path": {"type": "string", "description": "Path to .step relative to output dir"}
                 },
-                "required": ["step_path"]
-            }
-        }
+                "required": ["step_path"],
+            },
+        },
     },
     {
         "type": "function",
         "function": {
             "name": "list_outputs",
             "description": "List all generated output files.",
-            "parameters": {"type": "object", "properties": {}}
-        }
+            "parameters": {"type": "object", "properties": {}},
+        },
     },
     {
         "type": "function",
@@ -103,33 +147,37 @@ TOOLS = [
                 "properties": {
                     "step_path": {"type": "string", "description": "Path to .step file (e.g. 'abc123/abc123.step')"}
                 },
-                "required": ["step_path"]
-            }
-        }
+                "required": ["step_path"],
+            },
+        },
     },
 ]
 
 TOOL_MAP = {
-    "run_cad_code": lambda args: run_cad_code(args["code"]),
+    "run_cad_code":     lambda args: run_cad_code(args["code"]),
     "inspect_geometry": lambda args: json.dumps(inspect_geometry(args["step_path"]), default=str),
-    "read_reference": lambda args: read_reference(args["name"]),
-    "list_outputs": lambda args: json.dumps(list_outputs(), default=str),
-    "make_snapshot": lambda args: json.dumps(make_snapshot(args["step_path"]), default=str),
+    "read_reference":   lambda args: read_reference(args["name"]),
+    "list_outputs":     lambda args: json.dumps(list_outputs(), default=str),
+    "make_snapshot":    lambda args: json.dumps(make_snapshot(args["step_path"]), default=str),
 }
 
-MODEL_MAP = {
-    "deepseek": "deepseek-v4-pro",
-    "glm": "glm-5.1",
-    "kimi": "kimi-k2.6",
-}
+# Anthropic format: {name, description, input_schema}
+ANTHROPIC_TOOLS = [
+    {
+        "name": t["function"]["name"],
+        "description": t["function"].get("description", ""),
+        "input_schema": t["function"].get("parameters", {"type": "object", "properties": {}}),
+    }
+    for t in TOOLS
+]
 
-
-SESSIONS = {}
-SESSION_LAST_ACCESS = {}
+# ── Session store ──────────────────────────────────────────────────────────────
+SESSIONS: dict[str, list] = {}
+SESSION_LAST_ACCESS: dict[str, float] = {}
 SESSION_TTL = 3600
 
 
-async def _cleanup_sessions_loop():
+async def _cleanup_sessions_loop() -> None:
     while True:
         await asyncio.sleep(600)
         now = time.time()
@@ -141,35 +189,357 @@ async def _cleanup_sessions_loop():
             print(f"[OPENAI] Cleaned {len(expired)} expired sessions, {len(SESSIONS)} remaining")
 
 
-async def process_user_message(websocket, user_text: str, provider: str, session_id: str, image_data: str | None = None):
-    model_name = MODEL_MAP.get(provider, "glm-5.1")
+# ── Image helpers ──────────────────────────────────────────────────────────────
 
-    client = AsyncOpenAI(
-        base_url="https://opencode.ai/zen/go/v1",
-        api_key=os.environ.get("OPENCODE_API_KEY", ""),
-        timeout=300.0,
-        max_retries=2,
-    )
+def _parse_image_data_url(data_url: str) -> tuple[str, str]:
+    """Parse 'data:image/png;base64,...' → (media_type, base64_data)."""
+    if "," in data_url:
+        header, b64 = data_url.split(",", 1)
+        media_type = header.split(";")[0].split(":")[-1] if ":" in header else "image/png"
+        return media_type, b64
+    return "image/png", data_url
 
-    if session_id not in SESSIONS:
-        SESSIONS[session_id] = [{"role": "system", "content": CAD_AGENT_PROMPT}]
-    SESSION_LAST_ACCESS[session_id] = time.time()
 
-    messages = SESSIONS[session_id]
+def _build_user_content(text: str, image_data: str | None) -> str | list:
+    """Return plain string, or list-of-parts when image is present (OpenAI format)."""
+    if not image_data:
+        return text
+    media_type, b64 = _parse_image_data_url(image_data)
+    return [
+        {"type": "text", "text": text},
+        {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}},
+    ]
 
-    if image_data:
-        messages.append({"role": "user", "content": user_text})
-    else:
-        messages.append({"role": "user", "content": user_text})
 
-    max_steps = 20
-    for _step in range(max_steps):
-        attempt = 0
+# ── Format converter ───────────────────────────────────────────────────────────
+
+def _to_anthropic(messages: list) -> tuple[str, list]:
+    """Convert OpenAI-format session to (system_prompt, anthropic_messages).
+
+    Session history stays in OpenAI format; this converts just before the API
+    call so model switching mid-session works without re-formatting state.
+    Handles image_url parts → Anthropic image format automatically.
+    """
+    system = ""
+    result: list = []
+
+    for msg in messages:
+        role = msg["role"]
+
+        if role == "system":
+            system = msg.get("content") or ""
+
+        elif role == "user":
+            content = msg["content"]
+            if isinstance(content, str):
+                result.append({"role": "user", "content": content})
+            else:
+                # List of parts: text + image_url → convert image_url to Anthropic image
+                a_parts: list = []
+                for part in (content or []):
+                    ptype = part.get("type", "")
+                    if ptype == "text":
+                        a_parts.append({"type": "text", "text": part["text"]})
+                    elif ptype == "image_url":
+                        mt, b64 = _parse_image_data_url(part["image_url"]["url"])
+                        a_parts.append({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": mt, "data": b64},
+                        })
+                result.append({"role": "user", "content": a_parts})
+
+        elif role == "assistant":
+            a_content: list = []
+            if msg.get("content"):
+                a_content.append({"type": "text", "text": msg["content"]})
+            for tc in msg.get("tool_calls") or []:
+                fn = tc["function"]
+                try:
+                    input_data = json.loads(fn["arguments"])
+                except Exception:
+                    input_data = {}
+                a_content.append({
+                    "type": "tool_use",
+                    "id": tc["id"],
+                    "name": fn["name"],
+                    "input": input_data,
+                })
+            if a_content:
+                result.append({"role": "assistant", "content": a_content})
+
+        elif role == "tool":
+            block = {
+                "type": "tool_result",
+                "tool_use_id": msg.get("tool_call_id", ""),
+                "content": msg.get("content", ""),
+            }
+            # Group consecutive tool results in one user message
+            if result and result[-1]["role"] == "user" and isinstance(result[-1]["content"], list):
+                result[-1]["content"].append(block)
+            else:
+                result.append({"role": "user", "content": [block]})
+
+    return system, result
+
+
+# ── Gemini converter ───────────────────────────────────────────────────────────
+
+def _to_gemini_tools() -> list[dict]:
+    """Convert OpenAI-format tools → Google AI SDK function_declarations."""
+    declarations = []
+    for t in TOOLS:
+        fn = t["function"]
+        params = fn.get("parameters", {"type": "object", "properties": {}})
+        # Google SDK expects uppercase type
+        gparams = dict(params)
+        if isinstance(gparams.get("type"), str):
+            gparams["type"] = gparams["type"].upper()
+        declarations.append({
+            "name": fn["name"],
+            "description": fn.get("description", ""),
+            "parameters": gparams,
+        })
+    return [{"function_declarations": declarations}]
+
+
+def _to_gemini_contents(messages: list) -> tuple[str | None, list[dict]]:
+    """Convert OpenAI-format messages → (system_instruction, contents).
+
+    Google AI SDK content roles: user / model / function.
+    Function responses come with role 'function' (NOT 'tool').
+    """
+    system: str | None = None
+    contents: list[dict] = []
+
+    for msg in messages:
+        role = msg["role"]
+
+        if role == "system":
+            system = msg.get("content", "")
+            continue
+
+        if role == "user":
+            content = msg["content"]
+            if isinstance(content, str):
+                parts = [{"text": content}]
+            else:
+                parts = []
+                for part in (content or []):
+                    ptype = part.get("type", "")
+                    if ptype == "text":
+                        parts.append({"text": part["text"]})
+                    elif ptype == "image_url":
+                        mt, b64 = _parse_image_data_url(part["image_url"]["url"])
+                        parts.append({
+                            "inline_data": {"mime_type": mt, "data": b64},
+                        })
+            contents.append({"role": "user", "parts": parts})
+
+        elif role == "assistant":
+            parts: list[dict] = []
+            if msg.get("content"):
+                parts.append({"text": msg["content"]})
+            for tc in msg.get("tool_calls") or []:
+                fn = tc["function"]
+                try:
+                    args = json.loads(fn["arguments"])
+                except Exception:
+                    args = {}
+                parts.append({
+                    "functionCall": {"name": fn["name"], "args": args},
+                })
+            contents.append({"role": "model", "parts": parts})
+
+        elif role == "tool":
+            # Google SDK: function responses use role "function" with
+            # functionResponse.name matching the original functionCall.name.
+            # OpenAI only stores tool_call_id, so we search backwards
+            # through messages for the matching assistant tool call.
+            tc_id = msg.get("tool_call_id", "")
+            fn_name = tc_id  # fallback
+            seen = []
+            for prev in reversed(messages):
+                seen.append(prev.get("role"))
+                if prev.get("role") == "assistant" and prev.get("tool_calls"):
+                    for tc in prev["tool_calls"]:
+                        if tc.get("id") == tc_id:
+                            fn_name = tc["function"]["name"]
+                            break
+                    if fn_name != tc_id:
+                        break
+            if fn_name == tc_id:
+                print(f"[OPENAI] WARN: could not resolve tool_call_id '{tc_id}' "
+                      f"to function name (seen roles: {seen})")
+
+            raw = msg.get("content", "")
+            try:
+                parsed = json.loads(raw)
+                resp_data = parsed if isinstance(parsed, dict) else {"output": raw}
+            except (json.JSONDecodeError, TypeError):
+                resp_data = {"output": raw}
+            contents.append({
+                "role": "function",
+                "parts": [{
+                    "functionResponse": {
+                        "name": fn_name,
+                        "response": resp_data,
+                    }
+                }],
+            })
+
+    return system, contents
+
+
+# ── Gemini Zen handler ─────────────────────────────────────────────────────────
+
+async def _run_gemini_zen(
+    websocket, messages: list, model: str, api_key: str
+) -> None:
+    """Google AI SDK :generateContent via Zen (gemini-pro).
+
+    Zen's Gemini endpoint uses Google AI SDK protocol, NOT OpenAI
+    /chat/completions. We call it via httpx with the correct format.
+    """
+    import httpx
+
+    endpoint = f"{ZEN_BASE}/models/{model}:generateContent"
+    req_headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    system, contents = _to_gemini_contents(messages)
+
+    for _step in range(20):
+        payload: dict = {"contents": contents}
+        if system:
+            payload["system_instruction"] = {"parts": [{"text": system}]}
+        payload["tools"] = _to_gemini_tools()
+
+        response_data: dict | None = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    resp = await client.post(endpoint, headers=req_headers, json=payload)
+                    resp.raise_for_status()
+                    response_data = resp.json()
+                break
+            except Exception as e:
+                err = str(e)
+                print(f"[OPENAI] Gemini Zen error (attempt {attempt + 1}/3): {err[:120]}")
+                if attempt < 2 and any(k in err.lower() for k in ("connection", "timeout")):
+                    await asyncio.sleep(2 ** (attempt + 1))
+                    continue
+                await websocket.send(json.dumps({"type": "error", "error": err[:300]}))
+                return
+
+        if response_data is None:
+            return
+
+        candidates = response_data.get("candidates", [])
+        if not candidates:
+            await websocket.send(json.dumps({"type": "error", "error": "No candidates in Gemini response"}))
+            return
+
+        candidate = candidates[0]
+        finish = candidate.get("finishReason", "STOP")
+        content = candidate.get("content", {})
+        parts: list[dict] = content.get("parts", [])
+
+        text_parts = [p for p in parts if "text" in p]
+        fn_call_parts = [p for p in parts if "functionCall" in p]
+
+        print(f"[OPENAI] Gemini finish={finish} parts={len(parts)} "
+              f"text={len(text_parts)} fn_calls={len(fn_call_parts)}")
+
+        # Store in OpenAI format for session consistency
+        assistant_msg: dict = {"role": "assistant", "content": None}
+
+        if text_parts:
+            text = " ".join(p["text"] for p in text_parts)
+            assistant_msg["content"] = text
+            if finish != "TOOL_CALL":
+                await websocket.send(json.dumps({"type": "agent_event", "text": text}))
+            print(f"[OPENAI] TEXT: {text[:100]}...")
+
+        if fn_call_parts:
+            tool_calls = []
+            for i, p in enumerate(fn_call_parts):
+                fc = p["functionCall"]
+                tc_id = f"call_{_step}_{i}"
+                tool_calls.append({
+                    "id": tc_id,
+                    "type": "function",
+                    "function": {
+                        "name": fc["name"],
+                        "arguments": json.dumps(fc.get("args", {})),
+                    },
+                })
+            assistant_msg["tool_calls"] = tool_calls
+
+        messages.append(assistant_msg)
+
+        if finish != "TOOL_CALL" or not fn_call_parts:
+            break
+
+        # Execute tool calls (same pattern as _run_chat / _run_messages)
+        for p in fn_call_parts:
+            fc = p["functionCall"]
+            name = fc["name"]
+            args = fc.get("args", {})
+
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "tool_call": {"name": name, "args": args},
+            }))
+            print(f"[OPENAI] TOOL: {name}")
+
+            try:
+                fn = TOOL_MAP.get(name)
+                result = str(fn(args)) if fn else json.dumps({"error": f"Unknown tool: {name}"})
+                print(f"[OPENAI] RESULT: {name} ok ({len(result)} chars)")
+            except Exception as e:
+                result = json.dumps({"error": str(e)})
+                print(f"[OPENAI] RESULT: {name} FAIL: {e}")
+
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "tool_result": {
+                    "name": name,
+                    "response": result[:8000] if name == "run_cad_code" else result[:1000],
+                },
+            }))
+
+            # Google SDK format: function responses use role "function"
+            try:
+                parsed = json.loads(result)
+                resp_data = parsed if isinstance(parsed, dict) else {"output": result}
+            except (json.JSONDecodeError, TypeError):
+                resp_data = {"output": result}
+
+            # Map tool_call_id by constructing a unique ID
+            fn_tc_id = f"call_{_step}_{fn_call_parts.index(p)}"
+            messages.append({
+                "role": "tool",
+                "tool_call_id": fn_tc_id,
+                "content": result,
+            })
+
+
+# ── API handlers ───────────────────────────────────────────────────────────────
+
+async def _run_chat(
+    websocket, messages: list, model: str, api_key: str, base_url: str
+) -> None:
+    """OpenAI-compatible chat/completions (minimax, glm, kimi, deepseek)."""
+    client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=300.0, max_retries=2)
+
+    for _step in range(20):
         response = None
-        while attempt < 3:
+        for attempt in range(3):
             try:
                 response = await client.chat.completions.create(
-                    model=model_name,
+                    model=model,
                     messages=messages,
                     tools=TOOLS,
                     tool_choice="auto",
@@ -177,11 +547,10 @@ async def process_user_message(websocket, user_text: str, provider: str, session
                 )
                 break
             except Exception as e:
-                attempt += 1
                 err = str(e)
-                print(f"[OPENAI] API error (attempt {attempt}/3): {err[:120]}")
-                if attempt < 3 and ("connection" in err.lower() or "disconnect" in err.lower() or "timeout" in err.lower()):
-                    await asyncio.sleep(2 ** attempt)
+                print(f"[OPENAI] API error (attempt {attempt + 1}/3): {err[:120]}")
+                if attempt < 2 and any(k in err.lower() for k in ("connection", "disconnect", "timeout")):
+                    await asyncio.sleep(2 ** (attempt + 1))
                     continue
                 await websocket.send(json.dumps({"type": "error", "error": err[:300]}))
                 return
@@ -191,86 +560,225 @@ async def process_user_message(websocket, user_text: str, provider: str, session
 
         choice = response.choices[0]
         finish = choice.finish_reason
-        print(f"[OPENAI] finish_reason={finish}, content_len={len(choice.message.content or '')}, tool_calls={len(choice.message.tool_calls or [])}")
+        print(f"[OPENAI] finish_reason={finish}, tool_calls={len(choice.message.tool_calls or [])}")
 
-        if finish == "stop" or finish is None:
+        if finish in ("stop", None) or not choice.message.tool_calls:
             if choice.message.content:
                 messages.append({"role": "assistant", "content": choice.message.content})
                 await websocket.send(json.dumps({"type": "agent_event", "text": choice.message.content}))
                 print(f"[OPENAI] TEXT: {choice.message.content[:100]}...")
             break
 
-        if finish == "tool_calls" and choice.message.tool_calls:
-            assistant_msg = {"role": "assistant"}
-            if choice.message.content:
-                assistant_msg["content"] = choice.message.content
-            if choice.message.tool_calls:
-                assistant_msg["tool_calls"] = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    } for tc in choice.message.tool_calls
-                ]
-            messages.append(assistant_msg)
+        tool_calls_payload = [
+            {
+                "id": tc.id, "type": "function",
+                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+            }
+            for tc in choice.message.tool_calls
+        ]
+        messages.append({
+            "role": "assistant",
+            "content": choice.message.content or None,
+            "tool_calls": tool_calls_payload,
+        })
 
-            for tc in choice.message.tool_calls:
-                name = tc.function.name
-                try:
-                    args = json.loads(tc.function.arguments)
-                except Exception:
-                    args = {}
+        for tc in choice.message.tool_calls:
+            name = tc.function.name
+            try:
+                args = json.loads(tc.function.arguments)
+            except Exception:
+                args = {}
 
-                await websocket.send(json.dumps({
-                    "type": "agent_event",
-                    "tool_call": {"name": name, "args": args}
-                }))
-                print(f"[OPENAI] TOOL: {name}")
+            await websocket.send(json.dumps({"type": "agent_event", "tool_call": {"name": name, "args": args}}))
+            print(f"[OPENAI] TOOL: {name}")
 
-                try:
-                    fn = TOOL_MAP.get(name)
-                    if fn:
-                        result = str(fn(args))
-                    else:
-                        result = json.dumps({"error": f"Unknown tool: {name}"})
-                    print(f"[OPENAI] RESULT: {name} ok ({len(result)} chars)")
-                except Exception as e:
-                    result = json.dumps({"error": str(e)})
-                    print(f"[OPENAI] RESULT: {name} FAIL: {e}")
+            try:
+                fn = TOOL_MAP.get(name)
+                result = str(fn(args)) if fn else json.dumps({"error": f"Unknown tool: {name}"})
+                print(f"[OPENAI] RESULT: {name} ok ({len(result)} chars)")
+            except Exception as e:
+                result = json.dumps({"error": str(e)})
+                print(f"[OPENAI] RESULT: {name} FAIL: {e}")
 
-                await websocket.send(json.dumps({
-                    "type": "agent_event",
-                    "tool_result": {"name": name, "response": result[:8000] if name == "run_cad_code" else result[:1000]}
-                }))
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "tool_result": {
+                    "name": name,
+                    "response": result[:8000] if name == "run_cad_code" else result[:1000],
+                },
+            }))
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result # Keep the full result in message history so the model can inspect full code/errors
-                })
-        else:
-            if choice.message.content:
-                messages.append({"role": "assistant", "content": choice.message.content})
-                await websocket.send(json.dumps({"type": "agent_event", "text": choice.message.content}))
+
+async def _run_messages(
+    websocket, messages: list, model: str, api_key: str
+) -> None:
+    """Anthropic Messages API via direct httpx.
+
+    The anthropic SDK resolves its internal path (/v1/messages) as an absolute
+    URL component, which replaces the /zen/v1 sub-path and hits the wrong
+    endpoint. We bypass the SDK and POST to the exact URL via httpx instead.
+    """
+    import httpx
+
+    endpoint = f"{ZEN_BASE}/messages"   # https://opencode.ai/zen/v1/messages
+    req_headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }
+
+    for _step in range(20):
+        system, anthropic_msgs = _to_anthropic(messages)
+
+        payload: dict = {
+            "model": model,
+            "messages": anthropic_msgs,
+            "tools": ANTHROPIC_TOOLS,
+            "max_tokens": 8192,
+        }
+        if system:
+            payload["system"] = system
+
+        response_data: dict | None = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    resp = await client.post(endpoint, headers=req_headers, json=payload)
+                    resp.raise_for_status()
+                    response_data = resp.json()
+                break
+            except Exception as e:
+                err = str(e)
+                print(f"[OPENAI] Anthropic error (attempt {attempt + 1}/3): {err[:120]}")
+                if attempt < 2 and any(k in err.lower() for k in ("connection", "timeout")):
+                    await asyncio.sleep(2 ** (attempt + 1))
+                    continue
+                await websocket.send(json.dumps({"type": "error", "error": err[:300]}))
+                return
+
+        if response_data is None:
+            return
+
+        stop_reason = response_data.get("stop_reason", "end_turn")
+        content_blocks: list = response_data.get("content", [])
+        print(f"[OPENAI] Anthropic stop_reason={stop_reason}, blocks={len(content_blocks)}")
+
+        text_blocks = [b for b in content_blocks if b.get("type") == "text"]
+        tool_blocks = [b for b in content_blocks if b.get("type") == "tool_use"]
+
+        # Store in OpenAI format for session consistency
+        assistant_msg: dict = {"role": "assistant", "content": None}
+        if text_blocks:
+            text = " ".join(b["text"] for b in text_blocks)
+            assistant_msg["content"] = text
+            # Only send intermediate thoughts to websocket if NOT invoking a tool
+            # (Silences "thinking out loud" during multi-step execution loops)
+            if stop_reason != "tool_use":
+                await websocket.send(json.dumps({"type": "agent_event", "text": text}))
+            print(f"[OPENAI] TEXT: {text[:100]}...")
+
+        if tool_blocks:
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": b["id"], "type": "function",
+                    "function": {"name": b["name"], "arguments": json.dumps(b["input"])},
+                }
+                for b in tool_blocks
+            ]
+
+        messages.append(assistant_msg)
+
+        if stop_reason == "end_turn" or not tool_blocks:
             break
+
+        for b in tool_blocks:
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "tool_call": {"name": b["name"], "args": b["input"]},
+            }))
+            print(f"[OPENAI] TOOL: {b['name']}")
+
+            try:
+                fn = TOOL_MAP.get(b["name"])
+                result = str(fn(b["input"])) if fn else json.dumps({"error": f"Unknown tool: {b['name']}"})
+                print(f"[OPENAI] RESULT: {b['name']} ok ({len(result)} chars)")
+            except Exception as e:
+                result = json.dumps({"error": str(e)})
+                print(f"[OPENAI] RESULT: {b['name']} FAIL: {e}")
+
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "tool_result": {
+                    "name": b["name"],
+                    "response": result[:8000] if b["name"] == "run_cad_code" else result[:1000],
+                },
+            }))
+            messages.append({"role": "tool", "tool_call_id": b["id"], "content": result})
+
+
+# ── Main dispatcher ────────────────────────────────────────────────────────────
+
+async def process_user_message(
+    websocket,
+    user_text: str,
+    provider: str,
+    session_id: str,
+    image_data: str | None = None,
+) -> None:
+    if provider not in MODEL_CONFIGS:
+        print(f"[OPENAI] ERROR: unknown provider '{provider}'. Valid: {list(MODEL_CONFIGS)}")
+        await websocket.send(json.dumps({
+            "type": "error",
+            "error": f"Provider '{provider}' not found. Choose one: {', '.join(MODEL_CONFIGS)}",
+        }))
+        return
+    config  = MODEL_CONFIGS[provider]
+    model   = config["model"]
+    api     = config["api"]
+    api_key = os.environ.get("OPENCODE_API_KEY", "")
+
+    # Tier classification + prompt augmentation (mirrors server.py)
+    augmented_text, tier = assemble_prompt(user_text)
+    _current_tier.set(tier)
+    print(f"[OPENAI] TIER={tier} provider={provider} model={model} session={session_id[:12]}")
+
+    if session_id not in SESSIONS:
+        SESSIONS[session_id] = [{"role": "system", "content": CAD_AGENT_PROMPT}]
+    SESSION_LAST_ACCESS[session_id] = time.time()
+
+    expected_dims = set_expected_dims(session_id, user_text)
+    if expected_dims:
+        print(f"[OPENAI] EXPECTED_DIMS session={session_id[:12]} keys={sorted(expected_dims.keys())}")
+
+    messages = SESSIONS[session_id]
+    messages.append({"role": "user", "content": _build_user_content(augmented_text, image_data)})
+
+    if api == "messages":
+        await _run_messages(websocket, messages, model, api_key)
+    elif api == "gemini":
+        await _run_gemini_zen(websocket, messages, model, api_key)
+    else:
+        await _run_chat(websocket, messages, model, api_key, ZEN_BASE)
 
     print(f"[OPENAI] Completed, sending done")
     try:
-        await websocket.send(json.dumps({"type": "done"}))
+        await websocket.send(json.dumps({"type": "done", "tier": tier}))
     except Exception:
         pass
 
 
-async def agent_session(websocket):
-    client = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else "?"
-    print(f"[OPENAI] CONNECT from={client}")
+# ── WebSocket session ──────────────────────────────────────────────────────────
 
+async def agent_session(websocket) -> None:
+    addr = websocket.remote_address[0] if hasattr(websocket, "remote_address") else "?"
+    print(f"[OPENAI] CONNECT from={addr}")
     await websocket.send(json.dumps({"type": "ready", "message": "OpenAI Agent connected"}))
 
+    used_sids: set[str] = set()
     msg_counter = 0
+
     async for raw in websocket:
         try:
             msg = json.loads(raw)
@@ -278,10 +786,10 @@ async def agent_session(websocket):
             await websocket.send(json.dumps({"type": "error", "error": "Invalid JSON"}))
             continue
 
-        user_text = msg.get("message", "")
-        provider = msg.get("provider", "deepseek")
+        user_text  = msg.get("message", "")
+        provider   = msg.get("provider", DEFAULT_PROVIDER)
         user_image = msg.get("image", None)
-        client_sid = msg.get("session_id", "default_session")
+        client_sid = msg.get("session_id", f"sid_{addr}_{id(websocket)}")
 
         if not user_text and not user_image:
             await websocket.send(json.dumps({"type": "error", "error": "Missing 'message'"}))
@@ -291,6 +799,13 @@ async def agent_session(websocket):
             user_text = "Analiza esta imagen y genera el modelo CAD correspondiente"
 
         msg_counter += 1
+        used_sids.add(client_sid)
+
+        # Set context vars so tools can read session / tier / attempt info
+        _current_session_id.set(client_sid)
+        _current_tier.set("MODERATE")
+        _attempt_counts[client_sid] = 0
+
         print(f"[OPENAI] MESSAGE #{msg_counter} (session={client_sid[:12]}): {user_text[:80]}...")
 
         try:
@@ -302,13 +817,20 @@ async def agent_session(websocket):
             except Exception:
                 break
 
-    print(f"[OPENAI] DISCONNECT from={client}")
+    # Clean up session resources on disconnect (same as server.py)
+    for sid in used_sids:
+        try:
+            release_session_resources(sid)
+        except Exception as e:
+            print(f"[OPENAI] cleanup error for {sid[:12]}: {e}")
+    print(f"[OPENAI] DISCONNECT from={addr}")
 
 
-async def main():
+async def main() -> None:
     host = os.environ.get("BACKEND_HOST", "127.0.0.1")
     port = int(os.environ.get("OPENAI_AGENT_PORT", "8003"))
     print(f"[OPENAI] Agent server starting on ws://{host}:{port}")
+    print(f"[OPENAI] Providers: {', '.join(MODEL_CONFIGS)}")
     cleanup_task = asyncio.create_task(_cleanup_sessions_loop())
     async with serve(agent_session, host, port) as server:
         await server.serve_forever()

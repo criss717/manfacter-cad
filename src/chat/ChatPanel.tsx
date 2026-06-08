@@ -8,11 +8,19 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useCadStore, type CadTier } from "@/store/cadStore";
 
 const PROVIDERS = [
-  { id: "gemini", label: "Gemini 3.5 Flash", disabled: false },
-  { id: "deepseek", label: "DeepSeek V4 Pro — Próximamente", disabled: true },
-  { id: "glm", label: "GLM 5.1 — Próximamente", disabled: true },
-  { id: "kimi", label: "Kimi K2.6 — Próximamente", disabled: true },
-  { id: "openai", label: "GPT-4o — Próximamente", disabled: true },
+  { id: "gemini",            label: "Gemini 3.5 Flash (GEMINI API)", disabled: false },
+  { id: "gemini-pro-google", label: "Gemini 3.1 Pro (GEMINI API)",   disabled: false },
+  { id: "gemini-pro",        label: "Gemini 3.1 Pro (Zen)",          disabled: false },
+  { id: "sonnet",            label: "Claude Sonnet 4.6",             disabled: false },
+  { id: "opus",              label: "Claude Opus 4.8",               disabled: false },
+  { id: "qwen",              label: "Qwen 3.7 Max",                  disabled: false },
+  { id: "minimax",           label: "MiniMax M2.7",                  disabled: false },
+  { id: "glm",               label: "GLM 5.1",                       disabled: false },
+  { id: "kimi",              label: "Kimi K2.6",                       disabled: false },
+  { id: "deepseek",          label: "DeepSeek V4 Flash",               disabled: false },
+  { id: "mimo-v2.5-free",    label: "MiMo V2.5 Free (Zen)",           disabled: false },
+  { id: "deepseek-v4-flash-free", label: "DeepSeek V4 Flash Free (Zen)", disabled: false },
+  { id: "nemotron-3-ultra-free",  label: "Nemotron 3 Ultra Free (Zen)", disabled: false },
 ] as const;
 
 const TIER_BADGE_STYLES: Record<CadTier, string> = {

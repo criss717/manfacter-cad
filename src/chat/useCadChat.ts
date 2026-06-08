@@ -85,7 +85,11 @@ export function useCadChat() {
   }, [cancelRequestKey, setComplexModalOpen]);
 
   const getAgentUrl = useCallback(() => {
-    return provider === "gemini" ? getWsUrl("/ws/gemini", "8002") : getWsUrl("/ws/openai", "8003");
+    // gemini / gemini-pro-google → ADK server (Google API key, port 8002)
+    // gemini-pro                 → OpenCode Zen server (port 8003, Google AI SDK)
+    // everything else            → OpenCode Zen server (port 8003)
+    const isGeminiDirect = provider === "gemini" || provider === "gemini-pro-google";
+    return isGeminiDirect ? getWsUrl("/ws/gemini", "8002") : getWsUrl("/ws/openai", "8003");
   }, [provider]);
 
   const ensureConnection = useCallback(async (): Promise<WebSocket | null> => {
@@ -146,7 +150,7 @@ export function useCadChat() {
         }
 
         setStreamingText("Analizando...");
-        ws.send(JSON.stringify({ message: enriched, image: imageBase64 || null, session_id: sessionIdRef.current }));
+        ws.send(JSON.stringify({ message: enriched, image: imageBase64 || null, session_id: sessionIdRef.current, provider }));
 
         await new Promise<void>((resolve) => {
           let done = false;

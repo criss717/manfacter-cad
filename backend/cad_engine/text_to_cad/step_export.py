@@ -44,22 +44,25 @@ def _create_bin_xcaf_doc(to_export: Any) -> Any:
         ta,
     )
 
-    # Defensive: gen_step() may return a ShapeList of multiple solids
-    # instead of a single Part/Compound. The downstream code expects
-    # ``.wrapped`` and ``PreOrderIter`` compatibility, both of which
-    # require a Compound. Wrap any non-Compound iterable so the
-    # assembly label/colour pipeline and AddShape() call work uniformly.
+    # Defensive: gen_step() may return a non-Compound build123d shape
+    # (Solid, ShapeList, etc.). The downstream code expects .wrapped and
+    # PreOrderIter, both of which require a Compound. Two cases:
+    #   • Single shape with .wrapped (Solid, Part-not-yet-Compound) → [shape]
+    #   • Iterable without .wrapped (ShapeList)                      → list(shape)
     if not isinstance(to_export, Compound):
-        try:
-            to_export = Compound(list(to_export))
-        except TypeError as exc:
-            raise TypeError(
-                f"_create_bin_xcaf_doc: cannot export object of type "
-                f"{type(to_export).__name__!r}; expected Part, Compound, or "
-                f"an iterable of build123d shapes. Make sure gen_step() "
-                f"returns a Part/Compound (or a list of them) instead of a "
-                f"raw ShapeList. Original error: {exc}"
-            ) from exc
+        if hasattr(to_export, "wrapped"):
+            # Single build123d solid/shape — wrap directly
+            to_export = Compound([to_export])
+        else:
+            try:
+                to_export = Compound(list(to_export))
+            except TypeError as exc:
+                raise TypeError(
+                    f"_create_bin_xcaf_doc: cannot export object of type "
+                    f"{type(to_export).__name__!r}; expected Part, Compound, "
+                    f"Solid, or an iterable of build123d shapes. "
+                    f"Original error: {exc}"
+                ) from exc
 
     doc = create_bin_xcaf_doc()
     shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())

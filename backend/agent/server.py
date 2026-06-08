@@ -13,23 +13,45 @@ import signal
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Load .env from project root
+env_file = Path(__file__).parent.parent.parent / ".env"
+if env_file.exists():
+    with open(env_file) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and value and key not in os.environ:
+                    os.environ[key] = value
+
+if not os.environ.get("GOOGLE_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "")
+
 warnings.filterwarnings("ignore", message=".*EXPERIMENTAL.*")
 
 import websockets
 from websockets.asyncio.server import serve
 
-from google.adk import Runner
+from google.adk import Agent, Runner
 from google.adk.sessions import InMemorySessionService
-from agent.agent import cad_agent
 from agent.feature_flags import is_epic_a_enabled
-from agent.prompt import GOTCHAS_VERSION, assemble_prompt
+from agent.prompt import CAD_AGENT_PROMPT, GOTCHAS_VERSION, assemble_prompt
 from agent.tools import (
+    TOOLS,
     _attempt_counts,
     _current_session_id,
     _current_tier,
     release_session_resources,
     set_expected_dims,
 )
+
+# Gemini models available via the direct Google API key
+GEMINI_MODEL_MAP: dict[str, str] = {
+    "gemini":            "gemini-3.5-flash",
+    "gemini-pro-google": "gemini-3.1-pro-preview",  # Corrected to use preview model ID
+}
 
 def handler(signum, frame):
     print(f"[AGENT] Signal {signum} received, shutting down.")
@@ -40,14 +62,22 @@ signal.signal(signal.SIGTERM, handler)
 
 SESSION_SERVICE = InMemorySessionService()
 
-async def process_user_message(websocket, user_text: str, user_id: str, session_id: str, image_data: str | None = None):
+async def process_user_message(
+    websocket,
+    user_text: str,
+    user_id: str,
+    session_id: str,
+    image_data: str | None = None,
+    provider: str = "gemini",
+):
     """Run the ADK agent and stream events back. Retries on connection errors."""
     import time
 
+    model_name = GEMINI_MODEL_MAP.get(provider, "gemini-3.5-flash")
     augmented_text, tier = assemble_prompt(user_text)
     _current_tier.set(tier)
     print(
-        f"[AGENT] TIER={tier} epic_a={is_epic_a_enabled()} "
+        f"[AGENT] TIER={tier} model={model_name} epic_a={is_epic_a_enabled()} "
         f"gotchas_v={GOTCHAS_VERSION} session={session_id[:12]}"
     )
 
@@ -68,9 +98,15 @@ async def process_user_message(websocket, user_text: str, user_id: str, session_
                     session_id=session_id,
                 )
 
+            agent = Agent(
+                name="manfacter_cad",
+                model=model_name,
+                instruction=CAD_AGENT_PROMPT,
+                tools=TOOLS,
+            )
             runner = Runner(
                 app_name="manfactercad",
-                agent=cad_agent,
+                agent=agent,
                 session_service=SESSION_SERVICE,
             )
 
@@ -191,9 +227,10 @@ async def agent_session(websocket):
             await websocket.send(json.dumps({"type": "error", "error": "Invalid JSON"}))
             continue
 
-        user_text = msg.get("message", "")
+        user_text  = msg.get("message", "")
         user_image = msg.get("image", None)
         client_sid = msg.get("session_id", session_id)
+        provider   = msg.get("provider", "gemini")
 
         if not user_text and not user_image:
             if user_image:
@@ -220,7 +257,7 @@ async def agent_session(websocket):
         print(f"[AGENT] MESSAGE #{msg_counter} (session={sid[:12]}): {user_text[:80]}...")
 
         try:
-            await process_user_message(websocket, user_text, uid, sid, user_image or None)
+            await process_user_message(websocket, user_text, uid, sid, user_image or None, provider)
         except Exception as e:
             print(f"[AGENT] ERROR: {e}")
             try:
