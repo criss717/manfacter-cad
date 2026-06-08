@@ -13,12 +13,20 @@ export type LLMProvider =
   | "deepseek"
   | "mimo-v2.5-free"        // MiMo V2.5 Free  — Zen (multimodal)
   | "deepseek-v4-flash-free" // DeepSeek V4 Flash Free — Zen
-  | "nemotron-3-ultra-free"; // Nemotron 3 Ultra Free — Zen
+  | "nemotron-3-ultra-free" // Nemotron 3 Ultra Free — Zen
+  | "deepseek-v4-pro-go"  // DeepSeek V4 Pro — GO (coding beast)
+  | "mimo-v2.5-pro-go"    // MiMo V2.5 Pro — GO (omnimodal)
+  | "qwen3.7-max-go"      // Qwen 3.7 Max — GO (math/reasoning)
+  | "kimi-go"             // Kimi K2.6 — GO (balanced)
+  | "glm-go"              // GLM 5.1 — GO (stable)
+  | "minimax-m3-go";      // MiniMax M3 — GO (fast)
 
 const VALID_PROVIDERS: ReadonlySet<string> = new Set<LLMProvider>([
   "gemini", "gemini-pro-google", "gemini-pro",
   "sonnet", "opus", "qwen", "minimax", "glm", "kimi", "deepseek",
   "mimo-v2.5-free", "deepseek-v4-flash-free", "nemotron-3-ultra-free",
+  "deepseek-v4-pro-go", "mimo-v2.5-pro-go", "qwen3.7-max-go",
+  "kimi-go", "glm-go", "minimax-m3-go",
 ]);
 
 interface SettingsStore {

@@ -59,7 +59,8 @@ from agent.tools import (
 from agent.prompt import CAD_AGENT_PROMPT, assemble_prompt
 
 # ── Zen base URLs ──────────────────────────────────────────────────────────────
-ZEN_BASE = "https://opencode.ai/zen/v1"
+ZEN_BASE    = "https://opencode.ai/zen/v1"
+ZEN_GO_BASE = "https://opencode.ai/zen/go/v1"
 
 # ── Model registry ─────────────────────────────────────────────────────────────
 # api: "chat"     → OpenAI-compatible /chat/completions
@@ -81,6 +82,14 @@ MODEL_CONFIGS: dict[str, dict] = {
     "qwen":     {"model": "qwen3.7-max",         "api": "messages"},
     # ── Gemini via OpenCode Zen (Google AI SDK protocol) ─────────────────
     "gemini-pro": {"model": "gemini-3.1-pro",   "api": "gemini"},
+    # ── OpenCode Go (subscription, $10/mo) ──────────────────────────────
+    #    All use OpenAI-compatible /chat/completions or Anthropic /messages
+    "deepseek-v4-pro-go": {"model": "deepseek-v4-pro", "api": "chat",     "base_url": ZEN_GO_BASE},
+    "mimo-v2.5-pro-go":   {"model": "mimo-v2.5-pro",   "api": "chat",     "base_url": ZEN_GO_BASE},
+    "kimi-go":            {"model": "kimi-k2.6",         "api": "chat",     "base_url": ZEN_GO_BASE},
+    "glm-go":             {"model": "glm-5.1",           "api": "chat",     "base_url": ZEN_GO_BASE},
+    "qwen3.7-max-go":     {"model": "qwen3.7-max",       "api": "messages", "base_url": ZEN_GO_BASE},
+    "minimax-m3-go":      {"model": "minimax-m3",        "api": "messages", "base_url": ZEN_GO_BASE},
 }
 
 DEFAULT_PROVIDER = "glm"
@@ -611,7 +620,7 @@ async def _run_chat(
 
 
 async def _run_messages(
-    websocket, messages: list, model: str, api_key: str
+    websocket, messages: list, model: str, api_key: str, base_url: str
 ) -> None:
     """Anthropic Messages API via direct httpx.
 
@@ -621,7 +630,7 @@ async def _run_messages(
     """
     import httpx
 
-    endpoint = f"{ZEN_BASE}/messages"   # https://opencode.ai/zen/v1/messages
+    endpoint = f"{base_url}/messages"   # https://opencode.ai/zen/go/v1/messages
     req_headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -755,12 +764,13 @@ async def process_user_message(
     messages = SESSIONS[session_id]
     messages.append({"role": "user", "content": _build_user_content(augmented_text, image_data)})
 
+    base_url = config.get("base_url", ZEN_BASE)
     if api == "messages":
-        await _run_messages(websocket, messages, model, api_key)
+        await _run_messages(websocket, messages, model, api_key, base_url)
     elif api == "gemini":
         await _run_gemini_zen(websocket, messages, model, api_key)
     else:
-        await _run_chat(websocket, messages, model, api_key, ZEN_BASE)
+        await _run_chat(websocket, messages, model, api_key, base_url)
 
     print(f"[OPENAI] Completed, sending done")
     try:

@@ -21,6 +21,12 @@ const PROVIDERS = [
   { id: "mimo-v2.5-free",    label: "MiMo V2.5 Free (Zen)",           disabled: false },
   { id: "deepseek-v4-flash-free", label: "DeepSeek V4 Flash Free (Zen)", disabled: false },
   { id: "nemotron-3-ultra-free",  label: "Nemotron 3 Ultra Free (Zen)", disabled: false },
+  { id: "deepseek-v4-pro-go", label: "DeepSeek V4 Pro [GO]",           disabled: false },
+  { id: "mimo-v2.5-pro-go",   label: "MiMo V2.5 Pro [GO]",             disabled: false },
+  { id: "qwen3.7-max-go",     label: "Qwen 3.7 Max [GO]",              disabled: false },
+  { id: "kimi-go",            label: "Kimi K2.6 [GO]",                 disabled: false },
+  { id: "glm-go",             label: "GLM 5.1 [GO]",                   disabled: false },
+  { id: "minimax-m3-go",      label: "MiniMax M3 [GO]",                disabled: false },
 ] as const;
 
 const TIER_BADGE_STYLES: Record<CadTier, string> = {
