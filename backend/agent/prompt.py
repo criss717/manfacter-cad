@@ -382,6 +382,12 @@ Common gotchas:
   For loops over floats: for i in range(int(count)):  # not range(count)
   BuildLine requires make_face() before extrude()
 
+## FEW-SHOT EXAMPLES
+
+When you need to see how complex parts are built correctly:
+- call read_reference("example-spline-shaft.md") for spline shafts, multi-step cylinders, chamfers, and hole patterns
+- call read_reference("example-planetary-gear.md") for gears, assemblies, and Compound children
+
 ## CRITICAL
 
 - ALWAYS use named variables for EVERY dimension:

@@ -540,19 +540,20 @@ async def _run_gemini_zen(
 async def _run_chat(
     websocket, messages: list, model: str, api_key: str, base_url: str
 ) -> None:
-    """OpenAI-compatible chat/completions (minimax, glm, kimi, deepseek)."""
+    """OpenAI-compatible chat/completions WITH streaming (minimax, glm, kimi, deepseek, GO)."""
     client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=300.0, max_retries=2)
 
     for _step in range(20):
-        response = None
+        stream = None
         for attempt in range(3):
             try:
-                response = await client.chat.completions.create(
+                stream = await client.chat.completions.create(
                     model=model,
                     messages=messages,
                     tools=TOOLS,
                     tool_choice="auto",
                     temperature=0.2,
+                    stream=True,
                 )
                 break
             except Exception as e:
@@ -564,41 +565,70 @@ async def _run_chat(
                 await websocket.send(json.dumps({"type": "error", "error": err[:300]}))
                 return
 
-        if response is None:
+        if stream is None:
             return
 
-        choice = response.choices[0]
-        finish = choice.finish_reason
-        print(f"[OPENAI] finish_reason={finish}, tool_calls={len(choice.message.tool_calls or [])}")
+        # Accumulate text and tool calls from stream chunks
+        current_tool_calls: dict[int, dict] = {}
+        assistant_text = ""
+        finish_reason = None
 
-        if finish in ("stop", None) or not choice.message.tool_calls:
-            if choice.message.content:
-                messages.append({"role": "assistant", "content": choice.message.content})
-                await websocket.send(json.dumps({"type": "agent_event", "text": choice.message.content}))
-                print(f"[OPENAI] TEXT: {choice.message.content[:100]}...")
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if chunk.choices[0].finish_reason is not None:
+                finish_reason = chunk.choices[0].finish_reason
+
+            if delta.content:
+                assistant_text += delta.content
+                await websocket.send(json.dumps({
+                    "type": "agent_event",
+                    "text": delta.content,
+                }))
+                print(f"[OPENAI] TEXT chunk: {delta.content[:60]}...")
+
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    index = tc.index
+                    if index not in current_tool_calls:
+                        current_tool_calls[index] = {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""}
+                        }
+                    if tc.function:
+                        if tc.function.name:
+                            current_tool_calls[index]["function"]["name"] = tc.function.name
+                        if tc.function.arguments:
+                            current_tool_calls[index]["function"]["arguments"] += tc.function.arguments
+
+        print(f"[OPENAI] finish={finish_reason}, tool_calls={len(current_tool_calls)}")
+
+        if not current_tool_calls:
+            if assistant_text:
+                messages.append({"role": "assistant", "content": assistant_text})
             break
 
-        tool_calls_payload = [
-            {
-                "id": tc.id, "type": "function",
-                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-            }
-            for tc in choice.message.tool_calls
-        ]
+        # Tool calls present — execute them and feed back
+        tool_calls_list = list(current_tool_calls.values())
         messages.append({
             "role": "assistant",
-            "content": choice.message.content or None,
-            "tool_calls": tool_calls_payload,
+            "content": assistant_text or None,
+            "tool_calls": tool_calls_list,
         })
 
-        for tc in choice.message.tool_calls:
-            name = tc.function.name
+        for tc in tool_calls_list:
+            name = tc["function"]["name"]
             try:
-                args = json.loads(tc.function.arguments)
+                args = json.loads(tc["function"]["arguments"])
             except Exception:
                 args = {}
 
-            await websocket.send(json.dumps({"type": "agent_event", "tool_call": {"name": name, "args": args}}))
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "tool_call": {"name": name, "args": args}
+            }))
             print(f"[OPENAI] TOOL: {name}")
 
             try:
@@ -616,7 +646,11 @@ async def _run_chat(
                     "response": result[:8000] if name == "run_cad_code" else result[:1000],
                 },
             }))
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "content": result,
+            })
 
 
 async def _run_messages(

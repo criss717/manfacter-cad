@@ -3,7 +3,7 @@
 > Diseño CAD 3D con IA generativa. Le hablas, te modela.
 > Basado en [text-to-cad](https://github.com/earthtojake/text-to-cad) pero llevado a experiencia completa de producto.
 
-![Manfacter CAD](public/logo.png)
+![Manfacter CAD](public/logo_palacin.png)
 
 ## Qué hace esto
 

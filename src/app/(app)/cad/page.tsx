@@ -128,7 +128,7 @@ export default function CadPage() {
           <div className="flex items-center justify-between mb-3 px-1">
             <div className="flex items-center gap-3">
               <div className="relative w-30 h-12 shrink-0">
-                <Image src="/logo.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="82px" />
+                <Image src="/logo_palacin.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="82px" />
               </div>
               <div>
                 <h1 className="text-heading-sm font-bold text-manfacter tracking-tight">Studio</h1>
@@ -157,7 +157,7 @@ export default function CadPage() {
           </button>
           <div className="flex items-center gap-2">
             <div className="relative w-18 h-7 shrink-0">
-              <Image src="/logo.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="72px" />
+              <Image src="/logo_palacin.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="72px" />
             </div>
             <h1 className="hidden lg:block text-heading-sm font-bold text-[#1848a3] tracking-tight">Studio</h1>
           </div>
@@ -300,7 +300,7 @@ export default function CadPage() {
               </svg>
             </button>
             <div className="relative w-18 h-7 shrink-0">
-              <Image src="/logo.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="72px" />
+              <Image src="/logo_palacin.png" alt="Manfacter" fill className="rounded-lg object-contain" sizes="72px" />
             </div>
             <div className="hidden lg:block">
               <h1 className="text-heading-sm font-bold text-[#1848a3] tracking-tight">Studio</h1>
