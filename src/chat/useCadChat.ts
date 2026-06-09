@@ -24,11 +24,19 @@ function getBackendUrl(): string {
 }
 
 const PROGRESS: Record<string, string> = {
-  read_reference: "Consultando documentacion...",
-  run_cad_code: "Generando geometria 3D...",
-  inspect_geometry: "Verificando medidas...",
+  read_reference: "Leyendo documentacion de referencia...",
+  run_cad_code: "Generando codigo CAD...",
+  inspect_geometry: "Verificando medidas y calidad...",
   make_snapshot: "Renderizando vista previa...",
-  list_outputs: "Listando archivos...",
+  list_outputs: "Listando archivos generados...",
+};
+
+const WAITING_MESSAGES: Record<string, string> = {
+  default: "Esperando respuesta del servidor...",
+  model_processing: "El modelo esta procesando tu solicitud...",
+  tool_execution: "Ejecutando herramienta: {tool_name}...",
+  waiting_for_api: "Comunicando con el servicio de IA...",
+  analyzing_response: "Analizando la respuesta del modelo...",
 };
 
 const VALID_TIERS: ReadonlySet<CadTier> = new Set<CadTier>(["SIMPLE", "MODERATE", "COMPLEX"]);
@@ -131,7 +139,7 @@ export function useCadChat() {
       if (isProcessing) return;
       doneRef.current = false;
       setProcessing(true);
-      setStreamingText("Conectando...");
+      setStreamingText("Iniciando conexion...");
 
       const enriched = buildEnrichedMessage(content);
       const userMsg: ChatMessage = { id: `msg_${Date.now()}`, role: "user", content, timestamp: Date.now(), image: imageBase64 };
@@ -149,7 +157,7 @@ export function useCadChat() {
           return;
         }
 
-        setStreamingText("Analizando...");
+        setStreamingText(WAITING_MESSAGES.default);
         ws.send(JSON.stringify({ message: enriched, image: imageBase64 || null, session_id: sessionIdRef.current, provider }));
 
         await new Promise<void>((resolve) => {
@@ -198,6 +206,8 @@ export function useCadChat() {
                   };
                   if (currentTier) finalMsg.tier = currentTier;
                   addMessage(finalMsg);
+                } else {
+                  setStreamingText("Proceso completado.");
                 }
                 ws.removeEventListener("message", handler);
                 resolve();
@@ -211,7 +221,7 @@ export function useCadChat() {
                   if (msg.tool_call.name === "run_cad_code") {
                     attemptCount++;
                     if (attemptCount > 2) setComplexModalOpen(true);
-                    setStreamingText(`Generando (intento ${attemptCount})...`);
+                    setStreamingText(`Generando geometria 3D (intento ${attemptCount})...`);
                   } else {
                     if (msg.tool_call.name === "read_reference") {
                       setComplexModalOpen(true);
@@ -231,7 +241,7 @@ export function useCadChat() {
                         data = r.response;
                       }
                       if (data.ok) {
-                        setStreamingText("Geometria lista!");
+                        setStreamingText("Geometria generada correctamente!");
                         const base = getBackendUrl();
                         if (data.glb_url) setGlbUrl(`${base}${String(data.glb_url)}`);
                         if (data.step_url) setStepUrl(`${base}${String(data.step_url)}`);
@@ -241,14 +251,16 @@ export function useCadChat() {
                     } catch {
                       const response = String(r.response || "");
                       const glbMatch = response.match(/glb_url["'\s:]+["']?(\/[^"'\s,}]+)/);
-                      if (glbMatch) { setGlbUrl(`${getBackendUrl()}${glbMatch[1]}`); setStreamingText("Geometria lista!"); }
+                      if (glbMatch) { setGlbUrl(`${getBackendUrl()}${glbMatch[1]}`); setStreamingText("Geometria generada correctamente!"); }
                     }
+                  } else {
+                    setStreamingText(WAITING_MESSAGES.model_processing);
                   }
                 }
 
                 if (msg.text) {
                   responseText += msg.text;
-                  setStreamingText(msg.text.slice(-150));
+                  setStreamingText("Procesando respuesta...");
                 }
               }
             } catch { /* ignore */ }
