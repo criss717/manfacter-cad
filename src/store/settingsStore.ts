@@ -3,6 +3,7 @@ import { create } from "zustand";
 export type LLMProvider =
   | "gemini"           // Gemini 3.5 Flash — Google API key (ADK)
   | "gemini-pro-google" // Gemini 3.1 Pro  — Google API key (ADK)
+  | "gemini-2.5-pro"   // Gemini 2.5 Pro  — Google API key (ADK)
   | "gemini-pro"       // Gemini 3.1 Pro  — via OpenCode Zen (port 8003)
   | "sonnet"
   | "opus"
@@ -19,14 +20,15 @@ export type LLMProvider =
   | "qwen3.7-max-go"      // Qwen 3.7 Max — GO (math/reasoning)
   | "kimi-go"             // Kimi K2.6 — GO (balanced)
   | "glm-go"              // GLM 5.1 — GO (stable)
-  | "minimax-m3-go";      // MiniMax M3 — GO (fast)
+  | "minimax-m3-go"       // MiniMax M3 — GO (fast)
+  | "deepseek-v4-pro-sdk"; // DeepSeek V4 Pro — Agents SDK (experimental, port 8004)
 
 const VALID_PROVIDERS: ReadonlySet<string> = new Set<LLMProvider>([
-  "gemini", "gemini-pro-google", "gemini-pro",
+  "gemini", "gemini-pro-google", "gemini-2.5-pro", "gemini-pro",
   "sonnet", "opus", "qwen", "minimax", "glm", "kimi", "deepseek",
   "mimo-v2.5-free", "deepseek-v4-flash-free", "nemotron-3-ultra-free",
   "deepseek-v4-pro-go", "mimo-v2.5-pro-go", "qwen3.7-max-go",
-  "kimi-go", "glm-go", "minimax-m3-go",
+  "kimi-go", "glm-go", "minimax-m3-go", "deepseek-v4-pro-sdk",
 ]);
 
 interface SettingsStore {

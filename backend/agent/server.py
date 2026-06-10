@@ -50,7 +50,8 @@ from agent.tools import (
 # Gemini models available via the direct Google API key
 GEMINI_MODEL_MAP: dict[str, str] = {
     "gemini":            "gemini-3.5-flash",
-    "gemini-pro-google": "gemini-3.1-pro-preview",  # Corrected to use preview model ID
+    "gemini-pro-google": "gemini-3.1-pro-preview",
+    "gemini-2.5-pro":    "gemini-2.5-pro",
 }
 
 def handler(signum, frame):

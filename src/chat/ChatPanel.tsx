@@ -9,6 +9,7 @@ import { useCadStore, type CadTier } from "@/store/cadStore";
 
 const PROVIDERS = [
   { id: "gemini",            label: "Gemini 3.5 Flash (GEMINI API)", disabled: false },
+  { id: "gemini-2.5-pro",    label: "Gemini 2.5 Pro (GEMINI API)",   disabled: false },
   { id: "gemini-pro-google", label: "Gemini 3.1 Pro (GEMINI API)",   disabled: false },
   { id: "gemini-pro",        label: "Gemini 3.1 Pro (Zen)",          disabled: false },
   { id: "sonnet",            label: "Claude Sonnet 4.6",             disabled: false },
@@ -27,6 +28,7 @@ const PROVIDERS = [
   { id: "kimi-go",            label: "Kimi K2.6 [GO]",                 disabled: false },
   { id: "glm-go",             label: "GLM 5.1 [GO]",                   disabled: false },
   { id: "minimax-m3-go",      label: "MiniMax M3 [GO]",                disabled: false },
+  { id: "deepseek-v4-pro-sdk", label: "DeepSeek V4 Pro [SDK]",          disabled: false },
 ] as const;
 
 const TIER_BADGE_STYLES: Record<CadTier, string> = {

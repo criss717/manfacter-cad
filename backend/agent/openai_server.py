@@ -94,7 +94,68 @@ MODEL_CONFIGS: dict[str, dict] = {
 
 DEFAULT_PROVIDER = "glm"
 
-# ── Tool definitions (OpenAI format) ──────────────────────────────────────────
+# ── Image analysis pipeline ─────────────────────────────────────────────────────
+# Models that natively process images for CAD generation
+MODELS_WITH_VISION: set[str] = {"gemini-pro", "minimax-m3-go"}
+
+# Model used to analyze images BEFORE passing to a non-vision CAD model
+IMAGE_ANALYZER = "kimi-go"
+
+# Second analyzer for dual-analysis consensus (Anthropic /messages format)
+IMAGE_ANALYZER_B = "minimax-m3-go"
+
+IMAGE_ANALYSIS_PROMPT = """Eres un ingeniero mecánico experto analizando una fotografía de una pieza fabricada.
+
+Describe la pieza con MÁXIMO DETALLE siguiendo esta estructura EXACTA:
+
+## MATERIAL
+- Material aparente (latón, acero, aluminio, plástico, etc.)
+- Acabado superficial (mecanizado, fundido, pulido, anodizado)
+- Color y textura
+
+## FORMA GENERAL
+- Forma de la pieza (cilíndrica, rectangular, en L, irregular, etc.)
+- ¿Es una sola pieza o varias?
+
+## DIMENSIONES (en MILÍMETROS)
+- Ancho, alto, profundidad totales ESTIMADOS
+- Espesor de paredes, placas, bases
+- Diámetro de elementos circulares
+- Menciona cómo estimas (relativo a objetos en la foto o proporciones)
+
+## CARACTERÍSTICAS (enumera CADA una)
+Para cada característica visible describe:
+- Tipo: agujero, ranura, saliente, refuerzo, filete, chaflán, rosca, canal, chavetero
+- Posición relativa (centro, borde, a X mm del borde)
+- Dimensiones: diámetro, profundidad, largo, ancho
+- Patrón: ¿hay varios? ¿en círculo, línea, a qué ángulos?
+- Avellanado: ¿el agujero es plano o cónico en la entrada?
+
+## ROSCAS
+- ¿Hay agujeros o ejes roscados?
+- Tipo de rosca si es visible (fina/gruesa, métrica)
+- Diámetro aproximado
+
+## BORDES Y ESQUINAS
+- ¿Hay filetes (redondeos) o chaflanes (biselados)?
+- Tamaño aproximado
+
+## MÉTODO DE FABRICACIÓN
+- ¿Cómo se fabricó? (CNC, torno, fundición, impresión 3D, estampado)
+- ¿Marcas de herramienta visibles?
+
+## DIMENSIONES CRÍTICAS A PREGUNTAR
+Si NO puedes determinar una dimensión crítica de la foto, indícalo brevemente.
+
+REGLAS IMPORTANTES:
+1. Usa MILÍMETROS para TODAS las medidas
+2. Sé preciso pero indica cuando estás estimando
+3. Describe lo que VES, no inventes características
+4. Si algo no está claro, dilo explícitamente
+5. Céntrate en la GEOMETRÍA — esta descripción se usará para generar CAD
+6. Si el usuario ya dio medidas en su mensaje, ÚSALAS como referencia
+7. NO generes código — SOLO describe la pieza
+"""
 TOOLS = [
     {
         "type": "function",
@@ -761,6 +822,123 @@ async def _run_messages(
             messages.append({"role": "tool", "tool_call_id": b["id"], "content": result})
 
 
+# ── Image analysis helper ──────────────────────────────────────────────────────
+
+async def _analyze_image(image_data: str, user_text: str) -> str | None:
+    """Send image to IMAGE_ANALYZER (Kimi GO), get engineering description."""
+    import httpx
+
+    analyzer_config = MODEL_CONFIGS.get(IMAGE_ANALYZER)
+    if not analyzer_config:
+        print(f"[OPENAI] IMAGE ANALYZER '{IMAGE_ANALYZER}' not found in MODEL_CONFIGS")
+        return None
+
+    analyzer_model = analyzer_config["model"]
+    analyzer_base = analyzer_config.get("base_url", ZEN_BASE)
+    api_key = os.environ.get("OPENCODE_API_KEY", "")
+
+    media_type, b64 = _parse_image_data_url(image_data)
+    endpoint = f"{analyzer_base}/chat/completions"
+
+    messages = [
+        {"role": "system", "content": IMAGE_ANALYSIS_PROMPT},
+        {"role": "user", "content": [
+            {"type": "text", "text": f"Analiza esta foto de pieza mecánica para generación CAD.\n\nPetición del usuario: {user_text}"},
+            {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}},
+        ]},
+    ]
+
+    req_headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    payload = {
+        "model": analyzer_model,
+        "messages": messages,
+        "temperature": 0.1,
+        "max_tokens": 2048,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(endpoint, headers=req_headers, json=payload)
+            if resp.status_code >= 400:
+                body = resp.text[:300]
+                print(f"[OPENAI] IMAGE ANALYSIS FAILED: HTTP {resp.status_code} — {body}")
+                return None
+            data = resp.json()
+    except Exception as e:
+        import traceback
+        print(f"[OPENAI] IMAGE ANALYSIS FAILED: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        return None
+
+    description = data["choices"][0]["message"]["content"]
+    print(f"[OPENAI] IMAGE ANALYSIS: {description[:120]}...")
+    return description
+
+
+async def _analyze_image_anthropic(image_data: str, user_text: str) -> str | None:
+    """Send image to IMAGE_ANALYZER_B (MiniMax M3 GO) via Anthropic /messages."""
+    import httpx
+
+    analyzer_config = MODEL_CONFIGS.get(IMAGE_ANALYZER_B)
+    if not analyzer_config:
+        print(f"[OPENAI] IMAGE ANALYZER B '{IMAGE_ANALYZER_B}' not found")
+        return None
+
+    analyzer_model = analyzer_config["model"]
+    analyzer_base = analyzer_config.get("base_url", ZEN_BASE)
+    api_key = os.environ.get("OPENCODE_API_KEY", "")
+
+    media_type, b64 = _parse_image_data_url(image_data)
+    endpoint = f"{analyzer_base}/messages"
+
+    req_headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }
+
+    payload = {
+        "model": analyzer_model,
+        "system": IMAGE_ANALYSIS_PROMPT,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"Analiza esta foto de pieza mecánica para generación CAD.\n\nPetición del usuario: {user_text}"},
+                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
+                ],
+            },
+        ],
+        "max_tokens": 2048,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(endpoint, headers=req_headers, json=payload)
+            if resp.status_code >= 400:
+                body = resp.text[:300]
+                print(f"[OPENAI] IMAGE ANALYSIS B FAILED: HTTP {resp.status_code} — {body}")
+                return None
+            data = resp.json()
+    except Exception as e:
+        import traceback
+        print(f"[OPENAI] IMAGE ANALYSIS B FAILED: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        return None
+
+    # Anthropic response format
+    content_blocks = data.get("content", [])
+    text_blocks = [b["text"] for b in content_blocks if b.get("type") == "text"]
+    description = " ".join(text_blocks) if text_blocks else ""
+    print(f"[OPENAI] IMAGE ANALYSIS B: {description[:120]}...")
+    return description or None
+
+
 # ── Main dispatcher ────────────────────────────────────────────────────────────
 
 async def process_user_message(
@@ -786,6 +964,60 @@ async def process_user_message(
     augmented_text, tier = assemble_prompt(user_text)
     _current_tier.set(tier)
     print(f"[OPENAI] TIER={tier} provider={provider} model={model} session={session_id[:12]}")
+
+    # ── Image pipeline: non-vision model + image → analyze with Kimi GO first ─
+    needs_image_pipeline = (
+        image_data is not None
+        and provider not in MODELS_WITH_VISION
+        and IMAGE_ANALYZER in MODEL_CONFIGS
+        and provider != IMAGE_ANALYZER
+        and api != "gemini"
+    )
+    if needs_image_pipeline:
+        print(f"[OPENAI] IMAGE PIPELINE: dual analysis with {IMAGE_ANALYZER} + {IMAGE_ANALYZER_B}...")
+        await websocket.send(json.dumps({
+            "type": "agent_event",
+            "tool_call": {"name": "analyze_image", "args": {"providers": [IMAGE_ANALYZER, IMAGE_ANALYZER_B]}},
+        }))
+
+        # Run both analyzers in parallel
+        desc_a, desc_b = await asyncio.gather(
+            _analyze_image(image_data, user_text),
+            _analyze_image_anthropic(image_data, user_text),
+        )
+
+        # Merge descriptions
+        merged_parts = []
+        if desc_a:
+            merged_parts.append(f"## Ingeniero A (Kimi):\n{desc_a}")
+        if desc_b:
+            merged_parts.append(f"## Ingeniero B (MiniMax):\n{desc_b}")
+
+        if merged_parts:
+            merged = "[ANÁLISIS COMBINADO — DOS INGENIEROS]\n" + "\n\n".join(merged_parts) + "\n\n[CONSENSO — Usa AMBOS análisis para generar el CAD más preciso]"
+            description = desc_a or desc_b  # for the progress event
+            augmented_text = (
+                f"{merged}\n\n"
+                f"Petición del usuario: {user_text}\n\n"
+                "IMPORTANTE: genera el CAD DIRECTAMENTE basado en el consenso. "
+                "No repitas las descripciones — el usuario ya las conoce. Sé conciso."
+            )
+            image_data = None
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "tool_result": {"name": "analyze_image", "response": f"Dos análisis completados ({len(merged_parts)} exitosos)."},
+            }))
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "text": "Imagen analizada por dos ingenieros. Generando CAD con consenso...",
+            }))
+        else:
+            print(f"[OPENAI] IMAGE PIPELINE FAILED — both analyzers failed")
+            image_data = None
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "text": "No se pudo analizar la imagen con ningún modelo. Intentando solo con el texto...",
+            }))
 
     if session_id not in SESSIONS:
         SESSIONS[session_id] = [{"role": "system", "content": CAD_AGENT_PROMPT}]

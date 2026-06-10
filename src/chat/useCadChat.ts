@@ -29,6 +29,7 @@ const PROGRESS: Record<string, string> = {
   inspect_geometry: "Verificando medidas y calidad...",
   make_snapshot: "Renderizando vista previa...",
   list_outputs: "Listando archivos generados...",
+  analyze_image: "Analizando la imagen...",
 };
 
 const WAITING_MESSAGES: Record<string, string> = {
@@ -94,10 +95,12 @@ export function useCadChat() {
 
   const getAgentUrl = useCallback(() => {
     // gemini / gemini-pro-google → ADK server (Google API key, port 8002)
-    // gemini-pro                 → OpenCode Zen server (port 8003, Google AI SDK)
-    // everything else            → OpenCode Zen server (port 8003)
-    const isGeminiDirect = provider === "gemini" || provider === "gemini-pro-google";
-    return isGeminiDirect ? getWsUrl("/ws/gemini", "8002") : getWsUrl("/ws/openai", "8003");
+    // deepseek-v4-pro-sdk      → Agents SDK server (port 8004, experimental)
+    // gemini-pro + everything else → OpenCode Zen server (port 8003)
+    const isGeminiDirect = provider === "gemini" || provider === "gemini-pro-google" || provider === "gemini-2.5-pro";
+    if (isGeminiDirect) return getWsUrl("/ws/gemini", "8002");
+    if (provider === "deepseek-v4-pro-sdk") return getWsUrl("/ws/sdk", "8004");
+    return getWsUrl("/ws/openai", "8003");
   }, [provider]);
 
   const ensureConnection = useCallback(async (): Promise<WebSocket | null> => {

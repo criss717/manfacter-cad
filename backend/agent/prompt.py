@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 Tier = Literal["SIMPLE", "MODERATE", "COMPLEX"]
 
-GOTCHAS_VERSION = "1"
+GOTCHAS_VERSION = "2"
 
 TIER_DEFLECTION: dict[Tier, tuple[float, float]] = {
     "SIMPLE": (0.1, 0.8),
@@ -216,6 +216,18 @@ NUNCA invertir el orden ni pasar un solo edge sin envolverlo en `[...]`.
 - Aplica filetes/chaflanes ANTES de los agujeros y cortes.
 - Tras un corte, usa `max_fillet()` para hallar el radio máximo seguro.
 - En `a - b`, `b` debe atravesar completamente a `a` para garantizar el corte.
+
+### Box/cylinder/fillet: TypeError "Box.__init__() missing width and height"
+- Ocurre cuando aplicas `.fillet()` a una forma que YA fue modificada (union, subtract, otro fillet).
+- build123d pierde el tipo original (Box → Shape genérico) y OCP intenta reconstruirlo como Box.
+- FIX: NO encadenes operaciones sobre la misma variable. Asigna cada resultado intermedio:
+  ```python
+  shape = Box(100, 100, 10)          # OK: Box
+  shape = shape.fillet(5, edges)     # OK pero shape ahora es Shape genérico
+  # NO hagas shape.fillet() de nuevo sobre shape sin reasignar
+  ```
+- SOLUCIÓN: aplica TODOS los filetes en UNA sola llamada con TODAS las aristas en la lista.
+  NO hagas múltiples llamadas `.fillet()` encadenadas.
 
 ### MANUFACTURING (FDM / impresión 3D)
 - Pared mínima: `shell`/`hollow` debe dejar ≥ 1.0 mm de espesor.
