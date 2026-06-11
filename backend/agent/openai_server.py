@@ -567,6 +567,8 @@ async def _run_gemini_zen(
             try:
                 fn = TOOL_MAP.get(name)
                 result = str(fn(args)) if fn else json.dumps({"error": f"Unknown tool: {name}"})
+                if name == "run_cad_code":
+                    result = _restore_code_in_result(result)
                 print(f"[OPENAI] RESULT: {name} ok ({len(result)} chars)")
             except Exception as e:
                 result = json.dumps({"error": str(e)})
@@ -576,7 +578,7 @@ async def _run_gemini_zen(
                 "type": "agent_event",
                 "tool_result": {
                     "name": name,
-                    "response": result[:8000] if name == "run_cad_code" else result[:1000],
+                    "response": result if name == "run_cad_code" else result[:1000],
                 },
             }))
 
@@ -597,6 +599,20 @@ async def _run_gemini_zen(
 
 
 # ── API handlers ───────────────────────────────────────────────────────────────
+
+def _restore_code_in_result(result: str) -> str:
+    """If Epic C stripped the code field, restore it from the saved _script.py."""
+    try:
+        data = json.loads(result)
+        if "code" not in data and "model_id" in data:
+            script_path = Path(__file__).parent.parent / "output" / data["model_id"] / "_script.py"
+            if script_path.exists():
+                data["code"] = script_path.read_text()
+                return json.dumps(data)
+    except Exception:
+        pass
+    return result
+
 
 async def _run_chat(
     websocket, messages: list, model: str, api_key: str, base_url: str
@@ -643,10 +659,7 @@ async def _run_chat(
 
             if delta.content:
                 assistant_text += delta.content
-                await websocket.send(json.dumps({
-                    "type": "agent_event",
-                    "text": delta.content,
-                }))
+                # Don't send intermediate thinking to frontend — only final response
                 print(f"[OPENAI] TEXT chunk: {delta.content[:60]}...")
 
             if delta.tool_calls:
@@ -669,6 +682,10 @@ async def _run_chat(
         if not current_tool_calls:
             if assistant_text:
                 messages.append({"role": "assistant", "content": assistant_text})
+                await websocket.send(json.dumps({
+                    "type": "agent_event",
+                    "text": assistant_text,
+                }))
             break
 
         # Tool calls present — execute them and feed back
@@ -695,6 +712,8 @@ async def _run_chat(
             try:
                 fn = TOOL_MAP.get(name)
                 result = str(fn(args)) if fn else json.dumps({"error": f"Unknown tool: {name}"})
+                if name == "run_cad_code":
+                    result = _restore_code_in_result(result)
                 print(f"[OPENAI] RESULT: {name} ok ({len(result)} chars)")
             except Exception as e:
                 result = json.dumps({"error": str(e)})
@@ -704,7 +723,7 @@ async def _run_chat(
                 "type": "agent_event",
                 "tool_result": {
                     "name": name,
-                    "response": result[:8000] if name == "run_cad_code" else result[:1000],
+                    "response": result if name == "run_cad_code" else result[:1000],
                 },
             }))
             messages.append({
@@ -807,6 +826,8 @@ async def _run_messages(
             try:
                 fn = TOOL_MAP.get(b["name"])
                 result = str(fn(b["input"])) if fn else json.dumps({"error": f"Unknown tool: {b['name']}"})
+                if b["name"] == "run_cad_code":
+                    result = _restore_code_in_result(result)
                 print(f"[OPENAI] RESULT: {b['name']} ok ({len(result)} chars)")
             except Exception as e:
                 result = json.dumps({"error": str(e)})
@@ -816,7 +837,7 @@ async def _run_messages(
                 "type": "agent_event",
                 "tool_result": {
                     "name": b["name"],
-                    "response": result[:8000] if b["name"] == "run_cad_code" else result[:1000],
+                    "response": result if b["name"] == "run_cad_code" else result[:1000],
                 },
             }))
             messages.append({"role": "tool", "tool_call_id": b["id"], "content": result})

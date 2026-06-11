@@ -307,10 +307,11 @@ export default function ChatPanel() {
           <button
             type="button"
             onClick={cancel}
+            title="Cancelar generación"
             className="h-11 w-11 cursor-pointer rounded-full bg-ink text-snow flex items-center justify-center hover:bg-ash transition-colors duration-100 shrink-0"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <rect x="6" y="6" width="12" height="12" rx="1" />
+              <rect x="2" y="3" width="20" height="20" rx="1" />
             </svg>
           </button>
         ) : (
