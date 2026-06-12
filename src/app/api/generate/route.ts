@@ -6,38 +6,10 @@
  * Returns: { success, modelId, bbox, volume, glbUrl, stlUrl, params }
  *
  * This is a non-WebSocket alternative for clients that cannot use WS.
- * It runs the same runCadCode tool logic but returns the result as JSON.
+ * Uses the same complete ForgeCAD sandbox as the WebSocket agent tools.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { initEngine } from '@/cad/engine.js';
-import {
-  box,
-  cylinder,
-  sphere,
-  torus,
-} from '@/cad/primitives.js';
-import {
-  union,
-  subtract,
-  intersect,
-} from '@/cad/booleans.js';
-import {
-  translate,
-  rotate,
-  scale,
-  mirror,
-} from '@/cad/transforms.js';
-import {
-  getBoundingBox,
-  getVolume,
-  getSurfaceArea,
-  getTriangleCount,
-  isEmpty,
-  checkCollisions,
-} from '@/cad/inspect.js';
-import { toSTL, toGLB, toSTEP } from '@/cad/export.js';
-import { Param, collectParams, applyParams } from '@/cad/params.js';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -74,46 +46,88 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const scriptPath = join(modelDir, '_script.js');
     await writeFile(scriptPath, code, 'utf8');
 
-    // Initialize engine and build sandbox
-    await initEngine();
+    // Initialize engine and import the full CAD module (same as tools.ts sandbox)
+    const cad = await import('../../../cad/index');
+    await cad.initEngine();
 
-    const sandbox = {
-      box,
-      cylinder,
-      sphere,
-      torus,
-      union,
-      subtract,
-      intersect,
-      translate,
-      rotate,
-      scale,
-      mirror,
-      getBoundingBox,
-      getVolume,
-      getSurfaceArea,
-      getTriangleCount,
-      isEmpty,
-      checkCollisions,
-      toSTL,
-      toGLB,
-      toSTEP,
-      Param,
-      collectParams,
-      applyParams,
+    // Complete ForgeCAD API surface — same bindings as WS agent sandbox
+    const sandbox: Record<string, unknown> = {
+      box: cad.box, cylinder: cad.cylinder, sphere: cad.sphere, torus: cad.torus,
+      union: cad.union, difference: cad.difference, intersection: cad.intersection,
+      group: cad.group, hull3d: cad.hull3d,
+      fillet: cad.fillet, chamfer: cad.chamfer, shell: cad.shell,
+      hole: cad.hole, boss: cad.boss, pocket: cad.pocket,
+      draft: cad.draft, offsetSolid: cad.offsetSolid,
+      split: cad.split, splitByPlane: cad.splitByPlane, trimByPlane: cad.trimByPlane,
+      shellShape: cad.shellShape,
+      translate: cad.translate, rotate: cad.rotate, scale: cad.scale, mirror: cad.mirror,
+      rotateX: cad.rotateX, rotateY: cad.rotateY, rotateZ: cad.rotateZ,
+      moveTo: cad.moveTo, rotateAround: cad.rotateAround,
+      pointAlong: cad.pointAlong, moveToLocal: cad.moveToLocal,
+      linearPattern: cad.linearPattern, circularPattern: cad.circularPattern,
+      mirrorCopy: cad.mirrorCopy, circularLayout: cad.circularLayout, polygonVertices: cad.polygonVertices,
+      getBoundingBox: cad.getBoundingBox, getVolume: cad.getVolume,
+      getSurfaceArea: cad.getSurfaceArea, getTriangleCount: cad.getTriangleCount,
+      isEmpty: cad.isEmpty, checkCollisions: cad.checkCollisions,
+      face: cad.face, edge: cad.edge, faceNames: cad.faceNames, edgeNames: cad.edgeNames,
+      edgesOf: cad.edgesOf, edgesBetween: cad.edgesBetween,
+      selectEdges: cad.selectEdges, selectEdge: cad.selectEdge,
+      coalesceEdges: cad.coalesceEdges, faceHistory: cad.faceHistory,
+      withReferences: cad.withReferences, placeReference: cad.placeReference,
+      attachTo: cad.attachTo, onFace: cad.onFace, referencePoint: cad.referencePoint,
+      prefixLabels: cad.prefixLabels, renameLabel: cad.renameLabel,
+      dropLabels: cad.dropLabels, dropAllLabels: cad.dropAllLabels,
+      refine: cad.refine, refineToLength: cad.refineToLength,
+      refineToTolerance: cad.refineToTolerance, smoothOut: cad.smoothOut,
+      warp: cad.warp, simplify: cad.simplify, slice: cad.slice,
+      project: cad.project, minGap: cad.minGap,
+      intersectWithPlane: cad.intersectWithPlane, projectToPlane: cad.projectToPlane,
+      toSTL: cad.toSTL, toGLB: cad.toGLB, toSTEP: cad.toSTEP,
+      Param: cad.Param, collectParams: cad.collectParams, applyParams: cad.applyParams,
+      rect: cad.rect, circle2d: cad.circle2d, roundedRect: cad.roundedRect,
+      polygon: cad.polygon, ngon: cad.ngon, ellipse: cad.ellipse,
+      slot: cad.slot, star: cad.star, path: cad.path, stroke: cad.stroke,
+      union2d: cad.union2d, difference2d: cad.difference2d, intersection2d: cad.intersection2d,
+      hull2d: cad.hull2d, constrainedSketch: cad.constrainedSketch,
+      sketchFromSvg: cad.sketchFromSvg, filletCorners: cad.filletCorners,
+      dxfSketch: cad.dxfSketch, svgSketch: cad.svgSketch,
+      Sketch: cad.Sketch, ConstraintSketch: cad.ConstraintSketch,
+      Point2D: cad.Point2D, Line2D: cad.Line2D, Circle2D: cad.Circle2D, Rectangle2D: cad.Rectangle2D,
+      point: cad.point, line: cad.line, circle: cad.circle, rectangle: cad.rectangle,
+      Constraint: cad.Constraint, degrees: cad.degrees, radians: cad.radians,
+      spline2d: cad.spline2d, spline3d: cad.spline3d, loft: cad.loft, sweep: cad.sweep,
+      Curve3D: cad.Curve3D, Route3D: cad.Route3D, Blend: cad.Blend,
+      assembly: cad.assembly, joint: cad.joint,
+      Assembly: cad.Assembly, SolvedAssembly: cad.SolvedAssembly,
+      Transform: cad.Transform, composeChain: cad.composeChain, bomToCsv: cad.bomToCsv,
+      cutPlane: cad.cutPlane, explodeView: cad.explodeView,
+      jointsView: cad.jointsView, viewConfig: cad.viewConfig,
+      bom: cad.bom, dim: cad.dim, dimLine: cad.dimLine, robotExport: cad.robotExport,
+      verify: cad.verify, spec: cad.spec,
+      importSketch: cad.importSketch, importPart: cad.importPart, importSvgSketch: cad.importSvgSketch,
+      partLibrary: cad.partLibrary, lib: cad.lib,
+      levelSet: cad.levelSet,
+      Shape: cad.Shape, TrackedShape: cad.TrackedShape, ShapeGroup: cad.ShapeGroup,
       __CAD_RESULT: null as unknown,
     };
 
-    // Execute code in sandboxed async context
+    // Execute code in sandboxed async context — support both `const result =` and `return`
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
     const fn = new AsyncFunction(
       ...Object.keys(sandbox),
-      `${code}\nif (typeof result !== 'undefined') { __CAD_RESULT = result; }`,
+      `${code}
+if (typeof result !== "undefined") { __CAD_RESULT = result; }
+return __CAD_RESULT;`,
     );
-    await fn(...Object.values(sandbox));
 
-    const shape = sandbox.__CAD_RESULT as import('@/cad/types.js').Shape | null;
-    if (!shape || typeof shape !== 'object' || !('manifold' in shape)) {
+    const userReturn = await fn(...Object.values(sandbox));
+    const result = (sandbox.__CAD_RESULT ?? userReturn) as Record<string, unknown> | null;
+
+    // Duck-typing: accept Shape (has manifold + id), TrackedShape, or ShapeGroup (has shapes array)
+    const isShapeLike = result && typeof result === 'object' && 'manifold' in result && 'id' in result;
+    const isGroupLike = result && typeof result === 'object' && 'shapes' in result && Array.isArray((result as { shapes: unknown[] }).shapes);
+
+    if (!result || typeof result !== 'object' || (!isShapeLike && !isGroupLike)) {
       return NextResponse.json(
         {
           success: false,
@@ -125,9 +139,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // For ShapeGroup, use first shape for export; for Shape/TrackedShape, use directly
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const exportShape: any = isGroupLike
+      ? (result as { shapes: unknown[] }).shapes[0] ?? result
+      : result;
+
     // Export files
-    const glbBuffer = toGLB(shape);
-    const stlBuffer = toSTL(shape);
+    const glbBuffer = cad.toGLB(exportShape);
+    const stlBuffer = cad.toSTL(exportShape);
 
     const glbPath = join(modelDir, `${modelId}.glb`);
     const stlPath = join(modelDir, `${modelId}.stl`);
@@ -135,10 +155,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await writeFile(stlPath, stlBuffer);
 
     // Collect params and facts
-    const params = collectParams(code);
-    const bbox = getBoundingBox(shape);
-    const volume = getVolume(shape);
-    const numTri = getTriangleCount(shape);
+    const params = cad.collectParams(code);
+    const bbox = cad.getBoundingBox(exportShape);
+    const volume = cad.getVolume(exportShape);
+    const numTri = cad.getTriangleCount(exportShape);
 
     // Save facts
     const factsPath = join(modelDir, 'facts.json');
@@ -155,7 +175,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    console.error(`[GENERATE] Error: ${error}`);
+    console.error(`[GENERATE] Error: ${error}`, err instanceof Error ? err.stack : '');
     return NextResponse.json(
       { success: false, error },
       { status: 500 },

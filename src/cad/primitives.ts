@@ -1,130 +1,21 @@
 /**
- * Primitive shape constructors.
+ * Primitive shape constructors — ForgeCAD-aligned signatures.
  *
- * Every function returns an immutable Shape wrapping a manifold-3d solid.
+ * Every function returns an immutable Shape (or TrackedShape for box/cylinder)
+ * wrapping a manifold-3d solid.
  * The engine must be initialized via `initEngine()` before calling these.
- */
-
-import type { Shape, ShapeMaterialProps, ParamDef } from './types';
-import { getManifold, buildShapeFromManifold } from './engine';
-
-/**
- * Create a rectangular box (cuboid).
  *
- * @param width  X dimension (mm)
- * @param height Y dimension (mm)
- * @param depth  Z dimension (mm)
- * @param center If true the box is centered at the origin; otherwise it sits
- *               in the first octant touching the origin.
+ * ForgeCAD conventions:
+ *   box(x, y, z)     — centered on XY, base at Z=0
+ *   cylinder(h, r)   — centered on XY, base at Z=0
+ *   sphere(r)         — centered at origin
+ *   torus(major, minor) — ring in XY plane, centered at origin
  */
-export function box(
-  width: number,
-  height: number,
-  depth: number,
-  center: boolean = false,
-  color?: string,
-  material?: ShapeMaterialProps,
-  params?: ParamDef[]
-): Shape {
-  validatePositive(width, 'width');
-  validatePositive(height, 'height');
-  validatePositive(depth, 'depth');
 
-  const m = getManifold();
-  const manifold = m.Manifold.cube([width, height, depth], center);
-  return buildShapeFromManifold(manifold, color, material, params);
-}
-
-/**
- * Create a cylinder (or cone if radiusHigh is 0).
- *
- * @param height         Z extent (mm)
- * @param radius         Bottom radius (mm)
- * @param segments       Circular segments (default: auto from radius)
- * @param center         Center on Z-axis
- * @param radiusHigh     Top radius — 0 makes a cone (default: same as radius)
- */
-export function cylinder(
-  height: number,
-  radius: number,
-  segments?: number,
-  center: boolean = false,
-  radiusHigh?: number,
-  color?: string,
-  material?: ShapeMaterialProps,
-  params?: ParamDef[]
-): Shape {
-  validatePositive(height, 'height');
-  validatePositive(radius, 'radius');
-
-  const m = getManifold();
-  const manifold = m.Manifold.cylinder(
-    height,
-    radius,
-    radiusHigh ?? radius,
-    segments,
-    center
-  );
-  return buildShapeFromManifold(manifold, color, material, params);
-}
-
-/**
- * Create a geodesic sphere.
- *
- * @param radius   Sphere radius (mm) — must be positive
- * @param segments Circular segments (default: auto)
- */
-export function sphere(
-  radius: number,
-  segments?: number,
-  color?: string,
-  material?: ShapeMaterialProps,
-  params?: ParamDef[]
-): Shape {
-  validatePositive(radius, 'radius');
-
-  const m = getManifold();
-  const manifold = m.Manifold.sphere(radius, segments);
-  return buildShapeFromManifold(manifold, color, material, params);
-}
-
-/**
- * Create a torus by revolving a circle.
- *
- * @param majorRadius  Distance from the center of the torus to the center of
- *                     the tube (mm)
- * @param minorRadius  Radius of the tube (mm)
- * @param majorSegments Segments around the major circle (default: auto)
- * @param minorSegments Segments around the minor circle (default: auto)
- */
-export function torus(
-  majorRadius: number,
-  minorRadius: number,
-  majorSegments?: number,
-  minorSegments?: number,
-  color?: string,
-  material?: ShapeMaterialProps,
-  params?: ParamDef[]
-): Shape {
-  validatePositive(majorRadius, 'majorRadius');
-  validatePositive(minorRadius, 'minorRadius');
-
-  const m = getManifold();
-
-  // manifold-3d doesn't have a built-in torus constructor.
-  // Build one by revolving a circle cross-section.
-  const cs = m.CrossSection.circle(minorRadius, minorSegments);
-  const manifold = cs.revolve(majorSegments);
-
-  // The revolve creates a torus centered at origin with majorRadius.
-  // Translate so the center of the tube ring sits at z = 0.
-  // Actually revolve around Y-axis, so we need to rotate to Z-up and position.
-  // CrossSection is in XY plane, revolve around Y → result is in XZ plane.
-  // Rotate -90° around X to make it Z-up (standard CAD orientation).
-  const oriented = manifold.rotate([-90, 0, 0]);
-
-  return buildShapeFromManifold(oriented, color, material, params);
-}
+import { Shape } from './shape';
+import { TrackedShape, buildRectExtrusionTopology, buildCircleExtrusionTopology } from './trackedShape';
+import { getManifold } from './engine';
+import type { ShapeMaterialProps, ParamDef } from './types';
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -134,4 +25,121 @@ function validatePositive(value: number, name: string): void {
   if (value <= 0) {
     throw new Error(`${name} must be positive, got ${value}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Primitives
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a rectangular box (cuboid).
+ *
+ * ForgeCAD signature: box(width, depth, height)
+ * Centered on XY, base at Z=0.
+ *   X: [-width/2, width/2]
+ *   Y: [-depth/2, depth/2]
+ *   Z: [0, height]
+ *
+ * @param width   X dimension (mm)
+ * @param depth   Y dimension (mm)
+ * @param height  Z dimension (mm)
+ * @returns TrackedShape with faces: top, bottom, front, back, left, right
+ */
+export function box(
+  width: number,
+  depth: number,
+  height: number,
+): TrackedShape {
+  validatePositive(width, 'width');
+  validatePositive(depth, 'depth');
+  validatePositive(height, 'height');
+
+  const m = getManifold();
+  // Manifold-3d cube with center=true: centered at origin in all axes.
+  // Then translate up by height/2 so base is at Z=0.
+  const manifold = m.Manifold.cube([width, depth, height], true)
+    .translate([0, 0, height / 2]);
+
+  const faces = buildRectExtrusionTopology(width, depth, height);
+  return new TrackedShape(manifold, faces);
+}
+
+/**
+ * Create a cylinder (or cone if radiusTop differs from radius).
+ *
+ * ForgeCAD signature: cylinder(height, radius, radiusTop?, segments?)
+ * Centered on XY, base at Z=0.
+ *
+ * @param height      Z extent (mm)
+ * @param radius      Bottom radius (mm)
+ * @param radiusTop   Top radius (default: same as radius; 0 = cone)
+ * @param segments    Circular segments (default: auto from radius)
+ * @returns TrackedShape with faces: top, bottom, side
+ */
+export function cylinder(
+  height: number,
+  radius: number,
+  radiusTop?: number,
+  segments?: number,
+): TrackedShape {
+  validatePositive(height, 'height');
+  validatePositive(radius, 'radius');
+
+  const m = getManifold();
+  const rTop = radiusTop ?? radius;
+  // Manifold.cylinder(height, radiusLow, radiusHigh, circularSegments, center)
+  // center=false means base at Z=0 in manifold-3d's coordinate system
+  const manifold = m.Manifold.cylinder(height, radius, rTop, segments, false);
+
+  // manifold cylinder with center=false is already at Z=0 base
+  const faces = buildCircleExtrusionTopology(height);
+  return new TrackedShape(manifold, faces);
+}
+
+/**
+ * Create a geodesic sphere.
+ *
+ * ForgeCAD signature: sphere(radius, segments?)
+ * Centered at origin.
+ *
+ * @param radius   Sphere radius (mm) — must be positive
+ * @param segments Circular segments (default: auto)
+ */
+export function sphere(
+  radius: number,
+  segments?: number,
+): Shape {
+  validatePositive(radius, 'radius');
+
+  const m = getManifold();
+  const manifold = m.Manifold.sphere(radius, segments);
+  return new Shape(manifold);
+}
+
+/**
+ * Create a torus by revolving a circle.
+ *
+ * ForgeCAD signature: torus(majorRadius, minorRadius, segments?)
+ * Centered at origin, ring in XY plane.
+ *
+ * @param majorRadius  Distance from center to tube center (mm)
+ * @param minorRadius  Tube radius (mm)
+ * @param segments     Segments around the major circle (default: auto)
+ */
+export function torus(
+  majorRadius: number,
+  minorRadius: number,
+  segments?: number,
+): Shape {
+  validatePositive(majorRadius, 'majorRadius');
+  validatePositive(minorRadius, 'minorRadius');
+
+  const m = getManifold();
+
+  // manifold-3d doesn't have a built-in torus constructor.
+  // Build by revolving a circle cross-section.
+  const cs = m.CrossSection.circle(minorRadius);
+  const manifold = cs.revolve(majorRadius, segments);
+
+  return new Shape(manifold);
 }

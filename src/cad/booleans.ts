@@ -1,22 +1,83 @@
 /**
- * Boolean CSG operations: union, subtract, intersect.
+ * Boolean CSG operations: union, difference, intersection.
  *
  * All operations are immutable — they return new Shapes without modifying
- * the originals.
+ * the originals. Functions are variadic to match ForgeCAD API:
+ *
+ *   union(a, b, c)          → merged volume
+ *   difference(base, cut1, cut2) → base minus cutters
+ *   intersection(a, b, c)   → common volume
+ *
+ * Single-shape calls return the input shape unchanged (no-op).
  */
 
-import type { Shape } from './types';
-import {
-  getManifold,
-  buildShapeFromManifold,
-  getManifoldFromShape,
-} from './engine';
+import { Shape } from './shape';
+import { TrackedShape } from './trackedShape';
+import { getManifold } from './engine';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /**
- * Boolean union of one or more shapes.
- * Returns a single Shape combining all input volumes.
+ * Extract the raw Manifold object from a Shape or TrackedShape.
  */
-export function union(shapes: Shape[]): Shape {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getManifoldFromShape(shape: Shape): any {
+  return shape.manifold;
+}
+
+/**
+ * Get the color and material from a shape (for result inheritance).
+ */
+function getShapeAppearance(shape: Shape): { color: string; material: typeof shape.material } {
+  return { color: shape.color, material: shape.material };
+}
+
+/**
+ * Wrap a manifold result as a Shape (or TrackedShape if first operand is TrackedShape).
+ * Boolean operations preserve first-operand labels where geometry survives.
+ */
+function wrapResult(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  manifoldResult: any,
+  firstShape: Shape,
+): Shape {
+  const { color, material } = getShapeAppearance(firstShape);
+
+  if (firstShape instanceof TrackedShape) {
+    // For TrackedShape, we keep face names from the first operand
+    // Note: after boolean ops, some faces may no longer exist geometrically,
+    // but named face access will still work for surviving faces.
+    return new TrackedShape(manifoldResult, (firstShape as TrackedShape).faceNames().reduce(
+      (map, name) => {
+        // Faces from the first operand that survive the boolean.
+        // We preserve them as-is; the manifold will handle the geometry.
+        try {
+          const f = (firstShape as TrackedShape).face(name);
+          map.set(name, f);
+        } catch {
+          // Face removed by boolean — skip
+        }
+        return map;
+      },
+      new Map<string, import('./trackedShape').FaceRef>(),
+    ), undefined, color, material);
+  }
+
+  return new Shape(manifoldResult, color, material);
+}
+
+// ---------------------------------------------------------------------------
+// Boolean operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Boolean union of two or more shapes.
+ * Returns a single Shape combining all input volumes.
+ * Single shape → returns it unchanged (no-op).
+ */
+export function union(...shapes: Shape[]): Shape {
   if (shapes.length === 0) {
     throw new Error('union requires at least one shape');
   }
@@ -25,37 +86,41 @@ export function union(shapes: Shape[]): Shape {
   const m = getManifold();
   const manifolds = shapes.map(getManifoldFromShape);
   const result = m.Manifold.union(manifolds);
-  return buildShapeFromManifold(result, shapes[0].color, shapes[0].material);
+  return wrapResult(result, shapes[0]);
 }
 
 /**
  * Boolean difference: subtract one or more cutter shapes from a base.
+ * First shape is the base (kept); all subsequent shapes are subtracted.
+ * Single shape → returns it unchanged (no-op).
  */
-export function subtract(base: Shape, cutters: Shape[]): Shape {
-  if (cutters.length === 0) return base;
+export function difference(...shapes: Shape[]): Shape {
+  if (shapes.length === 0) {
+    throw new Error('difference requires at least one shape');
+  }
+  if (shapes.length === 1) return shapes[0];
 
   const m = getManifold();
-  let result = getManifoldFromShape(base);
-
-  for (const cutter of cutters) {
-    result = result.subtract(getManifoldFromShape(cutter));
-  }
-
-  return buildShapeFromManifold(result, base.color, base.material);
+  // manifold-3d difference takes array of cutters
+  const [base, ...cutters] = shapes;
+  const manifolds = cutters.map(getManifoldFromShape);
+  const result = getManifoldFromShape(base).subtract(m.Manifold.union(manifolds));
+  return wrapResult(result, base);
 }
 
 /**
  * Boolean intersection of two or more shapes.
  * Returns the volume common to all inputs.
+ * Single shape → returns it unchanged (no-op).
  */
-export function intersect(shapes: Shape[]): Shape {
+export function intersection(...shapes: Shape[]): Shape {
   if (shapes.length === 0) {
-    throw new Error('intersect requires at least one shape');
+    throw new Error('intersection requires at least one shape');
   }
   if (shapes.length === 1) return shapes[0];
 
   const m = getManifold();
   const manifolds = shapes.map(getManifoldFromShape);
   const result = m.Manifold.intersection(manifolds);
-  return buildShapeFromManifold(result, shapes[0].color, shapes[0].material);
+  return wrapResult(result, shapes[0]);
 }

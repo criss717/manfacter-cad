@@ -24,7 +24,7 @@ export default function ExportPanel() {
   const stepUrl = useCadStore((s) => s.stepUrl);
   const stlUrl = useCadStore((s) => s.stlUrl);
   const isProcessing = useCadStore((s) => s.isProcessing);
-  const hasModel = !!stepUrl;
+  const hasModel = !!stepUrl || !!stlUrl;
 
   if (!hasModel) {
     return (
@@ -43,13 +43,23 @@ export default function ExportPanel() {
     <div className="flex items-center gap-2">
       <button
         onClick={() => stlUrl && downloadFile(stlUrl, "modelo.stl")}
-        className="rounded-full bg-snow text-ink hover:bg-silver-mist/50 text-caption font-medium px-4 py-1.5 transition-colors cursor-pointer"
+        disabled={!stlUrl}
+        className={`rounded-full text-caption font-medium px-4 py-1.5 transition-colors cursor-pointer ${
+          stlUrl
+            ? "bg-snow text-ink hover:bg-silver-mist/50"
+            : "bg-fog text-graphite cursor-not-allowed opacity-40"
+        }`}
       >
         STL
       </button>
       <button
-        onClick={() => downloadFile(stepUrl!, "modelo.step")}
-        className="rounded-full bg-azure text-snow hover:bg-cobalt-link text-caption font-medium px-4 py-1.5 transition-colors cursor-pointer"
+        onClick={() => stepUrl && downloadFile(stepUrl, "modelo.step")}
+        disabled={!stepUrl}
+        className={`rounded-full text-caption font-medium px-4 py-1.5 transition-colors cursor-pointer ${
+          stepUrl
+            ? "bg-azure text-snow hover:bg-cobalt-link"
+            : "bg-fog text-graphite cursor-not-allowed opacity-40"
+        }`}
       >
         STEP
       </button>

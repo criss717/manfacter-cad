@@ -1,7 +1,7 @@
 /**
  * Agent tool implementations.
  *
- * Ported from backend/agent/tools.py — adapted for manifold-3d JS engine.
+ * Adapted for ForgeCAD-aligned Shape class API.
  * Each tool is a plain async function that returns a JSON-serializable result.
  */
 
@@ -64,14 +64,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'runCadCode',
       description:
-        'Execute JavaScript/TypeScript CAD code using manifold-3d. ' +
+        'Execute JavaScript/TypeScript CAD code using ForgeCAD manifold-3d. ' +
         'Returns model ID, GLB/STL URLs, bounding box, volume, triangle count.',
       parameters: {
         type: 'object',
         properties: {
           code: {
             type: 'string',
-            description: 'JavaScript CAD code using box(), cylinder(), sphere(), union(), subtract(), etc.',
+            description: 'JavaScript CAD code using box(), cylinder(), sphere(), union(), difference(), group(), hull3d(), etc.',
           },
         },
         required: ['code'],
@@ -109,13 +109,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'readReference',
       description:
-        'Read a CAD reference document. Only use for unfamiliar errors or complex assemblies.',
+        'Read a ForgeCAD CAD reference document. Use for unfamiliar operations or complex assemblies.',
       parameters: {
         type: 'object',
         properties: {
           name: {
             type: 'string',
-            description: 'Filename (e.g. "manifold-3d-guide.md", "repair-loop.md")',
+            description: 'Filename (e.g. "SKILL.md", "forgecad/core.md")',
           },
         },
         required: ['name'],
@@ -197,13 +197,11 @@ async function _runCadCode(code: string): Promise<string> {
     }
 
     // Dynamically import cad modules and execute the code in a sandboxed context.
-    // The code is expected to call functions from src/cad/ and assign to `module.exports`
-    // or use `globalThis.__CAD_RESULT`.
     const cad = await import('../cad/index');
     await cad.initEngine();
 
-    // Build a sandbox context with all CAD functions
-    const sandbox = {
+    // Build a sandbox context with complete ForgeCAD API surface
+    const sandbox: Record<string, unknown> = {
       // Primitives
       box: cad.box,
       cylinder: cad.cylinder,
@@ -211,13 +209,43 @@ async function _runCadCode(code: string): Promise<string> {
       torus: cad.torus,
       // Booleans
       union: cad.union,
-      subtract: cad.subtract,
-      intersect: cad.intersect,
+      difference: cad.difference,
+      intersection: cad.intersection,
+      // Grouping
+      group: cad.group,
+      // Hull
+      hull3d: cad.hull3d,
+      // Features
+      fillet: cad.fillet,
+      chamfer: cad.chamfer,
+      shell: cad.shell,
+      hole: cad.hole,
+      boss: cad.boss,
+      pocket: cad.pocket,
+      draft: cad.draft,
+      offsetSolid: cad.offsetSolid,
+      split: cad.split,
+      splitByPlane: cad.splitByPlane,
+      trimByPlane: cad.trimByPlane,
+      shellShape: cad.shellShape,
       // Transforms
       translate: cad.translate,
       rotate: cad.rotate,
       scale: cad.scale,
       mirror: cad.mirror,
+      rotateX: cad.rotateX,
+      rotateY: cad.rotateY,
+      rotateZ: cad.rotateZ,
+      moveTo: cad.moveTo,
+      rotateAround: cad.rotateAround,
+      pointAlong: cad.pointAlong,
+      moveToLocal: cad.moveToLocal,
+      // Patterns
+      linearPattern: cad.linearPattern,
+      circularPattern: cad.circularPattern,
+      mirrorCopy: cad.mirrorCopy,
+      circularLayout: cad.circularLayout,
+      polygonVertices: cad.polygonVertices,
       // Inspection
       getBoundingBox: cad.getBoundingBox,
       getVolume: cad.getVolume,
@@ -225,6 +253,40 @@ async function _runCadCode(code: string): Promise<string> {
       getTriangleCount: cad.getTriangleCount,
       isEmpty: cad.isEmpty,
       checkCollisions: cad.checkCollisions,
+      face: cad.face,
+      edge: cad.edge,
+      faceNames: cad.faceNames,
+      edgeNames: cad.edgeNames,
+      // Topology
+      edgesOf: cad.edgesOf,
+      edgesBetween: cad.edgesBetween,
+      selectEdges: cad.selectEdges,
+      selectEdge: cad.selectEdge,
+      coalesceEdges: cad.coalesceEdges,
+      faceHistory: cad.faceHistory,
+      // References & Labels
+      withReferences: cad.withReferences,
+      placeReference: cad.placeReference,
+      attachTo: cad.attachTo,
+      onFace: cad.onFace,
+      referencePoint: cad.referencePoint,
+      prefixLabels: cad.prefixLabels,
+      renameLabel: cad.renameLabel,
+      dropLabels: cad.dropLabels,
+      dropAllLabels: cad.dropAllLabels,
+      // Mesh
+      refine: cad.refine,
+      refineToLength: cad.refineToLength,
+      refineToTolerance: cad.refineToTolerance,
+      smoothOut: cad.smoothOut,
+      warp: cad.warp,
+      simplify: cad.simplify,
+      slice: cad.slice,
+      project: cad.project,
+      minGap: cad.minGap,
+      // Plane intersection
+      intersectWithPlane: cad.intersectWithPlane,
+      projectToPlane: cad.projectToPlane,
       // Export
       toSTL: cad.toSTL,
       toGLB: cad.toGLB,
@@ -233,53 +295,177 @@ async function _runCadCode(code: string): Promise<string> {
       Param: cad.Param,
       collectParams: cad.collectParams,
       applyParams: cad.applyParams,
+      // Sketch 2D
+      rect: cad.rect,
+      circle2d: cad.circle2d,
+      roundedRect: cad.roundedRect,
+      polygon: cad.polygon,
+      ngon: cad.ngon,
+      ellipse: cad.ellipse,
+      slot: cad.slot,
+      star: cad.star,
+      path: cad.path,
+      stroke: cad.stroke,
+      union2d: cad.union2d,
+      difference2d: cad.difference2d,
+      intersection2d: cad.intersection2d,
+      hull2d: cad.hull2d,
+      constrainedSketch: cad.constrainedSketch,
+      sketchFromSvg: cad.sketchFromSvg,
+      filletCorners: cad.filletCorners,
+      dxfSketch: cad.dxfSketch,
+      svgSketch: cad.svgSketch,
+      Sketch: cad.Sketch,
+      ConstraintSketch: cad.ConstraintSketch,
+      Point2D: cad.Point2D,
+      Line2D: cad.Line2D,
+      Circle2D: cad.Circle2D,
+      Rectangle2D: cad.Rectangle2D,
+      point: cad.point,
+      line: cad.line,
+      circle: cad.circle,
+      rectangle: cad.rectangle,
+      Constraint: cad.Constraint,
+      degrees: cad.degrees,
+      radians: cad.radians,
+      // Curves
+      spline2d: cad.spline2d,
+      spline3d: cad.spline3d,
+      loft: cad.loft,
+      sweep: cad.sweep,
+      Curve3D: cad.Curve3D,
+      Route3D: cad.Route3D,
+      Blend: cad.Blend,
+      // Assembly
+      assembly: cad.assembly,
+      joint: cad.joint,
+      Assembly: cad.Assembly,
+      SolvedAssembly: cad.SolvedAssembly,
+      Transform: cad.Transform,
+      composeChain: cad.composeChain,
+      bomToCsv: cad.bomToCsv,
+      // Viewport
+      cutPlane: cad.cutPlane,
+      explodeView: cad.explodeView,
+      jointsView: cad.jointsView,
+      viewConfig: cad.viewConfig,
+      // Output
+      bom: cad.bom,
+      dim: cad.dim,
+      dimLine: cad.dimLine,
+      robotExport: cad.robotExport,
+      // Verification
+      verify: cad.verify,
+      spec: cad.spec,
+      // Imports
+      importSketch: cad.importSketch,
+      importPart: cad.importPart,
+      importSvgSketch: cad.importSvgSketch,
+      partLibrary: cad.partLibrary,
+      lib: cad.lib,
+      // SDF
+      levelSet: cad.levelSet,
+      // Shape classes
+      Shape: cad.Shape,
+      TrackedShape: cad.TrackedShape,
+      ShapeGroup: cad.ShapeGroup,
       // Result holder
       __CAD_RESULT: null as unknown,
     };
 
-    // Execute code — wrap in async function to support await
+    // Execute code — wrap in async function to support await.
+    // Support both patterns: `const result = ...;` (explicit) and `return expr;` (ForgeCAD style)
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
     const fn = new AsyncFunction(
       ...Object.keys(sandbox),
-      `${code}\nif (typeof result !== 'undefined') { __CAD_RESULT = result; }`
+      // Check for `result` variable first, then fall back to `return` value
+      `${code}
+if (typeof result !== "undefined") { __CAD_RESULT = result; }
+return __CAD_RESULT;`
     );
-    await fn(...Object.values(sandbox));
 
-    const shape = sandbox.__CAD_RESULT as import('../cad/types').Shape | null;
-    if (!shape || typeof shape !== 'object' || !('manifold' in shape)) {
+    // Capture return value — covers both `const result` (via __CAD_RESULT) and `return expr`
+    const userReturn = await fn(...Object.values(sandbox));
+
+    // Prefer explicit `result`, fall back to return value
+    const shape = (sandbox.__CAD_RESULT ?? userReturn) as Record<string, unknown> | null;
+
+    // Accept Shape, TrackedShape, or ShapeGroup as valid results
+    // Use duck-typing since dynamic import creates different class identities
+    if (!shape || typeof shape !== 'object') {
+      throw new Error(
+        'El código no definió una variable `result` con un Shape válido. ' +
+        'Terminá con: const result = tuPieza; o return tuPieza;'
+      );
+    }
+
+    // Check if it's a Shape/TrackedShape (has manifold) or ShapeGroup (has shapes)
+    const isShapeLike = 'manifold' in shape && 'id' in shape;
+    const isGroupLike = 'shapes' in shape && Array.isArray((shape as { shapes: unknown[] }).shapes);
+
+    if (!isShapeLike && !isGroupLike) {
       throw new Error(
         'El código no definió una variable `result` con un Shape válido. ' +
         'Asegúrate de que tu código termine con: const result = tuPieza;'
       );
     }
 
+    // For ShapeGroup, use the first shape for export; for Shape, use directly
+    const exportShape = isGroupLike
+      ? ((shape as { shapes: import('../cad/shape').Shape[] }).shapes[0] ?? shape as unknown as import('../cad/shape').Shape)
+      : shape as unknown as import('../cad/shape').Shape;
+
     // Export GLB and STL
-    const glbBuffer = cad.toGLB(shape);
-    const stlBuffer = cad.toSTL(shape);
+    const glbBuffer = cad.toGLB(exportShape);
+    const stlBuffer = cad.toSTL(exportShape);
 
     const glbPath = join(modelDir, `${modelId}.glb`);
     const stlPath = join(modelDir, `${modelId}.stl`);
     await writeFile(glbPath, glbBuffer);
     await writeFile(stlPath, stlBuffer);
 
+    // Try STEP export (may fail if OCCT not available — stub)
+    let stepUrl: string | undefined;
+    try {
+      const stepBuffer = await cad.toSTEP(exportShape);
+      const stepPath = join(modelDir, `${modelId}.step`);
+      await writeFile(stepPath, stepBuffer);
+      stepUrl = `/api/cad/output/${modelId}/${modelId}.step`;
+    } catch {
+      // STEP not available — skip, don't crash
+    }
+
     // Collect params from code
-    const params = cad.collectParams(code);
+    const paramDefs = cad.collectParams(code);
 
     // Get facts
-    const bbox = cad.getBoundingBox(shape);
-    const volume = cad.getVolume(shape);
-    const numTri = cad.getTriangleCount(shape);
+    const bbox = exportShape.boundingBox();
+    const volume = exportShape.volume();
+    const numTri = exportShape.numTri();
 
     // Save facts as JSON
     const factsPath = join(modelDir, 'facts.json');
-    await writeFile(factsPath, JSON.stringify({ bbox, volume, numTri, params }, null, 2));
+    await writeFile(factsPath, JSON.stringify({ bbox, volume, numTri, paramDefs }, null, 2));
 
     const result: RunCadCodeResult = {
       ok: true,
       modelId,
       glbUrl: `/api/cad/output/${modelId}/${modelId}.glb`,
       stlUrl: `/api/cad/output/${modelId}/${modelId}.stl`,
+      ...(stepUrl ? { stepUrl } : {}),
       facts: { bbox, volume, triangles: numTri },
+      paramDefs: (paramDefs ?? []).map((p: Record<string, unknown>) => {
+        // ParamValue has __paramDef; plain objects are already ParamDefs
+        const def = (p.__paramDef as Record<string, unknown>) ?? p;
+        return {
+          name: def.name as string,
+          type: ((def.type as string) === 'select' ? 'choice' : def.type) as string,
+          defaultValue: def.defaultValue,
+          options: def.options,
+          unit: def.unit,
+        };
+      }),
+      code,
       tier,
     };
 
@@ -375,8 +561,30 @@ async function _listOutputs(): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Tool: readReference
+// Tool: readReference — validates against filesystem
 // ---------------------------------------------------------------------------
+
+/** Cached list of available reference files (refreshed per call). */
+let _cachedReferences: string[] | null = null;
+
+async function getAvailableReferences(): Promise<string[]> {
+  if (_cachedReferences) return _cachedReferences;
+
+  try {
+    const entries = await readdir(REFERENCES_DIR, { recursive: true });
+    _cachedReferences = entries
+      .filter((e) => typeof e === 'string' && e.endsWith('.md'))
+      .map((e) => e.replace(/\\/g, '/'));
+  } catch {
+    _cachedReferences = [];
+  }
+  return _cachedReferences;
+}
+
+/** Invalidate the reference cache (call after file changes). */
+export function invalidateReferenceCache(): void {
+  _cachedReferences = null;
+}
 
 async function _readReference(name: string): Promise<string> {
   const cleanName = name.replace(/\\/g, '/').replace(/^\//, '');
@@ -399,7 +607,10 @@ async function _readReference(name: string): Promise<string> {
     }
   }
 
-  // Reference docs
+  // Reference docs — validate against filesystem
+  const available = await getAvailableReferences();
+
+  // Try exact match
   const path = join(REFERENCES_DIR, cleanName);
   try {
     const content = await readFile(path, 'utf8');
@@ -407,14 +618,7 @@ async function _readReference(name: string): Promise<string> {
       ? content.slice(0, 15000) + '\n\n... (truncated)'
       : content;
   } catch {
-    // List available references
-    let available: string[] = [];
-    try {
-      const entries = await readdir(REFERENCES_DIR);
-      available = entries.filter((e) => e.endsWith('.md'));
-    } catch {
-      // references/ dir doesn't exist
-    }
+    // Reference not found — list available docs
     return `Reference '${name}' not found. Available: ${available.join(', ')}`;
   }
 }
@@ -427,7 +631,7 @@ function _classifyError(error: string): string {
   const e = error.toLowerCase();
 
   if (e.includes('not a function') || e.includes('is not a function')) {
-    return 'ERROR: Llamaste algo como función que no lo es. Revisa la API de manifold-3d.';
+    return 'ERROR: Llamaste algo como función que no lo es. Revisa la API de ForgeCAD.';
   }
   if (e.includes('cannot read propert')) {
     return 'ERROR: Accediste a una propiedad de undefined. Verifica que las primitivas devuelvan Shapes válidos.';

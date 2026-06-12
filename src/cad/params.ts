@@ -11,19 +11,62 @@
 import type { ParamDef } from './types';
 
 // ---------------------------------------------------------------------------
+// ParamValue — a number that also carries parameter metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * A tunable numeric parameter that works as both:
+ * - A plain number in arithmetic and function calls (via valueOf)
+ * - A ParamDef for the frontend property panel
+ *
+ * This allows AI-generated code like:
+ *   const tamano = Param.number("Tamaño", 100, ...);
+ *   box(tamano, tamano, tamano);  // works because tamano.valueOf() === 100
+ *
+ * while also letting the frontend extract parameter definitions.
+ */
+class ParamValue extends Number {
+  readonly __paramDef: ParamDef;
+
+  constructor(def: ParamDef) {
+    super(def.defaultValue as number);
+    this.__paramDef = def;
+  }
+
+  valueOf(): number {
+    return this.__paramDef.defaultValue as number;
+  }
+
+  toString(): string {
+    return String(this.__paramDef.defaultValue);
+  }
+
+  /** Serialize as the full ParamDef so the frontend receives complete metadata. */
+  toJSON(): ParamDef {
+    return this.__paramDef;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Param constructors
 // ---------------------------------------------------------------------------
 
 export const Param = {
   /**
-   * Create a numeric parameter.
+   * Create a numeric parameter that works as BOTH a number and a ParamDef.
+   *
+   * Usage:
+   *   const w = Param.number("Width", 100, { min: 50, max: 200, unit: "mm" });
+   *   box(w, 50, 20);  // w behaves as 100 in arithmetic
+   *
+   * The returned value extends Number and uses valueOf() for coercion.
    */
   number(
     name: string,
     defaultValue: number,
     options?: { min?: number; max?: number; step?: number; unit?: string }
-  ): ParamDef {
-    return {
+  ): number & ParamDef {
+    const def: ParamDef = {
       name,
       type: 'number',
       defaultValue,
@@ -32,6 +75,7 @@ export const Param = {
         : undefined,
       unit: options?.unit,
     };
+    return new ParamValue(def) as unknown as number & ParamDef;
   },
 
   /**
@@ -42,19 +86,32 @@ export const Param = {
   },
 
   /**
-   * Create a select (enum) parameter.
+   * Create a choice (enum) parameter.
+   * Alias for the previous `select` — renamed to match ForgeCAD convention.
    */
-  select(
+  choice(
     name: string,
     values: string[],
     defaultValue?: string
   ): ParamDef {
     return {
       name,
-      type: 'select',
+      type: 'choice',
       defaultValue: defaultValue ?? values[0],
       options: { values },
     };
+  },
+
+  /**
+   * Create a select (enum) parameter.
+   * @deprecated Use `Param.choice()` instead. Will be removed in a future version.
+   */
+  select(
+    name: string,
+    values: string[],
+    defaultValue?: string
+  ): ParamDef {
+    return Param.choice(name, values, defaultValue);
   },
 };
 
@@ -75,9 +132,9 @@ export function collectParams(code: string): ParamDef[] {
   // Match Param.bool("name", default)
   const boolRe =
     /Param\.bool\s*\(\s*["']([^"']+)["']\s*,\s*([^)]+)\s*\)/g;
-  // Match Param.select("name", [...], default?)
-  const selectRe =
-    /Param\.select\s*\(\s*["']([^"']+)["']\s*,\s*(\[[^\]]+\])(?:\s*,\s*["']([^"']+)["'])?\s*\)/g;
+  // Match Param.choice("name", [...], default?) and Param.select("name", [...], default?) (deprecated)
+  const choiceRe =
+    /Param\.(?:choice|select)\s*\(\s*["']([^"']+)["']\s*,\s*(\[[^\]]+\])(?:\s*,\s*["']([^"']+)["'])?\s*\)/g;
 
   let match: RegExpExecArray | null;
 
@@ -107,7 +164,7 @@ export function collectParams(code: string): ParamDef[] {
   }
 
   // eslint-disable-next-line no-cond-assign
-  while ((match = selectRe.exec(code)) !== null) {
+  while ((match = choiceRe.exec(code)) !== null) {
     const name = match[1];
     let values: string[];
     try {
@@ -116,7 +173,7 @@ export function collectParams(code: string): ParamDef[] {
       values = [];
     }
     const defaultValue = match[3];
-    params.push(Param.select(name, values, defaultValue));
+    params.push(Param.choice(name, values, defaultValue));
   }
 
   return params;
@@ -150,12 +207,12 @@ export function applyParams(
     );
     result = result.replace(boolRe, `$1${JSON.stringify(value)}`);
 
-    // Param.select("name", [...], "OLD_VALUE")
-    const selectRe = new RegExp(
-      `(Param\\.select\\s*\\(\\s*["']${escapeRegex(name)}["']\\s*,\\s*\\[[^\\]]+\\]\\s*,\\s*["'])([^"']+)`,
+    // Param.choice("name", [...], "OLD_VALUE") — and deprecated Param.select
+    const choiceRe = new RegExp(
+      `(Param\\.(?:choice|select)\\s*\\(\\s*["']${escapeRegex(name)}["']\\s*,\\s*\\[[^\\]]+\\]\\s*,\\s*["'])([^"']+)`,
       'g'
     );
-    result = result.replace(selectRe, `$1${value}`);
+    result = result.replace(choiceRe, `$1${value}`);
   }
 
   return result;

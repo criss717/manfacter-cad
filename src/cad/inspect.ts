@@ -1,54 +1,52 @@
 /**
  * Inspection utilities: bounding box, volume, surface area, triangle count,
  * emptiness check, collision detection, and snapshot rendering.
+ *
+ * Free functions delegate to Shape instance methods where applicable.
+ * Standalone functions like checkCollisions and renderSnapshot remain here.
  */
 
-import type { BBox, CollisionResult, Shape, SnapshotAngle } from './types';
-import { getManifoldFromShape } from './engine';
+import { Shape } from './shape';
+import type { BBox, CollisionResult, SnapshotAngle } from './types';
 
 /**
  * Get the axis-aligned bounding box of a shape.
+ * Delegates to shape.boundingBox().
  */
 export function getBoundingBox(shape: Shape): BBox {
-  const bb = getManifoldFromShape(shape).boundingBox() as {
-    min: number[];
-    max: number[];
-  };
-  const min: [number, number, number] = [bb.min[0], bb.min[1], bb.min[2]];
-  const max: [number, number, number] = [bb.max[0], bb.max[1], bb.max[2]];
-  return {
-    min,
-    max,
-    size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]],
-  };
+  return shape.boundingBox();
 }
 
 /**
  * Get the volume of a shape in cubic millimetres.
+ * Delegates to shape.volume().
  */
 export function getVolume(shape: Shape): number {
-  return getManifoldFromShape(shape).volume();
+  return shape.volume();
 }
 
 /**
  * Get the surface area of a shape in square millimetres.
+ * Delegates to shape.surfaceArea().
  */
 export function getSurfaceArea(shape: Shape): number {
-  return getManifoldFromShape(shape).surfaceArea();
+  return shape.surfaceArea();
 }
 
 /**
  * Get the triangle count of the shape's mesh.
+ * Delegates to shape.numTri().
  */
 export function getTriangleCount(shape: Shape): number {
-  return getManifoldFromShape(shape).numTri();
+  return shape.numTri();
 }
 
 /**
  * Check whether a shape is empty (has no triangles).
+ * Delegates to shape.isEmpty().
  */
 export function isEmpty(shape: Shape): boolean {
-  return getManifoldFromShape(shape).isEmpty();
+  return shape.isEmpty();
 }
 
 /**
@@ -74,8 +72,10 @@ export function checkCollisions(shapes: Shape[]): CollisionResult[] {
       let volume: number | undefined;
       if (overlapping) {
         // Compute exact intersection volume
-        const mA = getManifoldFromShape(shapes[i]);
-        const mB = getManifoldFromShape(shapes[j]);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mA = shapes[i].manifold as any;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mB = shapes[j].manifold as any;
         try {
           volume = mA.intersect(mB).volume();
         } catch {
@@ -100,15 +100,6 @@ export function checkCollisions(shapes: Shape[]): CollisionResult[] {
  *
  * Converts the shape to a GLB mesh, then renders it to PNG using sharp
  * for image compositing. Returns a Buffer containing PNG data.
- *
- * Camera positions for each angle (looking at origin):
- * - front:  (0, -1, 0.5)    — looking from front
- * - back:   (0, 1, 0.5)     — looking from back
- * - top:    (0, 0, 1)       — looking down
- * - bottom: (0, 0, -1)      — looking up
- * - left:   (-1, 0, 0.5)    — looking from left
- * - right:  (1, 0, 0.5)     — looking from right
- * - iso:    (1, -1, 1)      — isometric view
  */
 export async function renderSnapshot(
   shape: Shape,
@@ -116,18 +107,13 @@ export async function renderSnapshot(
 ): Promise<Buffer> {
   // For MVP, we render a simple bounding-box wireframe as a PNG.
   // Full 3D rendering requires a WebGL context (headless three.js or similar).
-  //
-  // This placeholder creates a minimal PNG with the shape's bounding box
-  // dimensions drawn as a labelled rectangle.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  // @ts-ignore sharp types don't resolve via pnpm exports map
   const sharp: any = await import('sharp');
   const bbox = getBoundingBox(shape);
 
   const width = 400;
   const height = 300;
 
-  // Create a simple SVG with the bbox info as text overlay
   const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
     <rect width="100%" height="100%" fill="#1a1a2e"/>
     <rect x="50" y="50" width="${Math.min(300, Math.max(50, bbox.size[0]))}" height="${Math.min(200, Math.max(30, bbox.size[1]))}" fill="none" stroke="#4cc9f0" stroke-width="2"/>

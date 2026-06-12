@@ -1,62 +1,45 @@
 /**
- * Immutable spatial transforms: translate, rotate, scale, mirror.
+ * Free-function transforms that delegate to Shape class methods.
  *
- * Every function returns a new Shape — the original is never modified.
+ * These exist for backward compatibility and for use in sandbox contexts
+ * where the agent prefers functional style:
+ *
+ *   translate(shape, x, y, z)  ≡ shape.translate(x, y, z)
+ *   rotate(shape, axis, angle) ≡ shape.rotate(axis, angle)
+ *   scale(shape, factor)       ≡ shape.scale(factor)
+ *   mirror(shape, normal)      ≡ shape.mirror(normal)
+ *
+ * All operations are immutable — they return new Shapes.
  */
 
-import type { Shape } from './types';
-import { buildShapeFromManifold, getManifoldFromShape } from './engine';
+import { Shape, type Vec3 } from './shape';
 
 /**
  * Move a shape by (x, y, z) millimetres.
  */
-export function translate(
-  shape: Shape,
-  x: number,
-  y: number,
-  z: number
-): Shape {
-  const m = getManifoldFromShape(shape).translate([x, y, z]);
-  return buildShapeFromManifold(m, shape.color, shape.material, shape.params);
+export function translate(shape: Shape, x: number, y: number, z: number): Shape {
+  return shape.translate(x, y, z);
 }
 
 /**
- * Rotate a shape by Euler angles (degrees) around X, Y, Z axes.
- * Rotation order: X → Y → Z (global frame).
+ * Rotate a shape around an axis by angleDeg degrees.
+ * axis can be a Vec3 [x,y,z] or 'x', 'y', 'z' shorthand.
  */
-export function rotate(
-  shape: Shape,
-  xDeg: number,
-  yDeg: number,
-  zDeg: number
-): Shape {
-  const m = getManifoldFromShape(shape).rotate([xDeg, yDeg, zDeg]);
-  return buildShapeFromManifold(m, shape.color, shape.material, shape.params);
+export function rotate(shape: Shape, axis: Vec3 | 'x' | 'y' | 'z', angleDeg: number): Shape {
+  return shape.rotate(axis, angleDeg);
 }
 
 /**
  * Scale a shape by (x, y, z) factors. Uniform scale if only one value given.
  */
-export function scale(
-  shape: Shape,
-  x: number,
-  y?: number,
-  z?: number
-): Shape {
-  const m = getManifoldFromShape(shape).scale(
-    y === undefined && z === undefined ? x : [x, y ?? 1, z ?? 1]
-  );
-  return buildShapeFromManifold(m, shape.color, shape.material, shape.params);
+export function scale(shape: Shape, factor: number | Vec3): Shape {
+  return shape.scale(factor);
 }
 
 /**
  * Mirror a shape over a plane defined by its normal vector.
- * For example, `mirror(shape, [1, 0, 0])` mirrors over the YZ plane.
+ * Example: mirror(shape, [1, 0, 0]) mirrors over the YZ plane.
  */
-export function mirror(
-  shape: Shape,
-  normal: [number, number, number]
-): Shape {
-  const m = getManifoldFromShape(shape).mirror(normal);
-  return buildShapeFromManifold(m, shape.color, shape.material, shape.params);
+export function mirror(shape: Shape, normal: Vec3): Shape {
+  return shape.mirror(normal);
 }

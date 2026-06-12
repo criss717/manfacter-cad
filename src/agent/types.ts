@@ -143,10 +143,24 @@ export interface RunCadCodeResult {
     volume?: number;
     triangles?: number;
   };
+  paramDefs?: ParamDefEntry[];
   error?: string;
   hint?: string;
   code?: string;
   tier?: string;
+}
+
+export interface ParamDefEntry {
+  name: string;
+  type: 'number' | 'bool' | 'choice';
+  defaultValue: number | boolean | string;
+  options?: {
+    min?: number;
+    max?: number;
+    step?: number;
+    values?: string[];
+  };
+  unit?: string;
 }
 
 export interface InspectResult {

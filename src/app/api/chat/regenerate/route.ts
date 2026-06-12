@@ -18,7 +18,8 @@ export async function POST(req: Request) {
       step: result.step,
       stl: result.stl,
     });
-  } catch {
+  } catch (e) {
+    console.error('[REGENERATE] Error:', e instanceof Error ? e.message : String(e));
     return Response.json({ error: "Internal error" }, { status: 500 });
   }
 }

@@ -1,107 +1,123 @@
 ---
-name: cad
-description: Create, modify, inspect, and validate STEP-first build123d/Python CAD parts and assemblies. Use for natural-language CAD specs, STEP/STP generation, build123d source, build123d source-level joints, @cad references, geometry facts, measurements, mating deltas, CAD Explorer handoffs, and secondary DXF/STL/3MF outputs.
+name: forgecad
+description: ForgeCAD model authoring, editing, debugging, and execution guidance for .forge.js, SVG-import, assembly, and CLI workflows. Use when building or modifying ForgeCAD geometry, structuring multi-file projects, validating scripts, or using ForgeCAD export/render tooling.
+forgecad-public: true
 ---
 
-# CAD generation, inspection, and validation
+# ForgeCAD
 
-## Purpose
+Author or modify ForgeCAD models, sketches, assemblies, and CLI workflows. Prefer documented primitives, import rules, placement strategies, and CLI commands over inventing new APIs.
 
-Create or modify parametric CAD models from natural-language requirements, generate validated STEP/STP artifacts, inspect geometry references, and return checked outputs. Treat STEP as the primary CAD artifact. Treat DXF, STL, 3MF, and native GLB as secondary workflows that branch from, or accompany, a STEP-first process. For assemblies, prefer source-level build123d joints and named mating datums when the parts have functional assembly relationships.
+## Workflow
 
-## Use this skill when
+1. Identify the artifact: `.forge.js`, SVG asset, or CLI/export task.
+2. **If the model has any moving parts, load the `assembly` group and `{{SKILL_DIR}}/docs/guides/joint-design.md` upfront** — do not defer the kinematic structure to a refactor pass.
+3. Load only the docs the task needs (see Source Map below). Start from the top group, add others as needed, and prefer these docs and recipes over ad-hoc repo examples.
+4. If any two parts are intended to touch or mate in the final model, load `{{SKILL_DIR}}/docs/guides/positioning.md` immediately and default to connectors + `matchTo()`.
+5. Default to a concrete first pass — easy iteration beats speculative design review.
+6. If an existing model is broken, replace the weak structure rather than preserving bad architecture.
+7. Validate with `forgecad run <file>` (add `--debug-imports` for import chain issues; pass `--backend manifold|occt|truck` when the backend matters).
+8. For moving assemblies, return the `Assembly` directly so runtime controls re-solve the link/edge kinematics model instead of stacking viewport-only transforms.
+9. Model the physical artifact, not an educational diagram. No explanatory labels, arrows, legends, or text plaques unless the user explicitly asks for a presentation or teaching view; product markings only where the real object would carry them.
+10. Build the real closed CAD first. Never bake cutaways, sectioned shells, permanently exploded layouts, or hidden-parts views into the default model just to show internals — use viewer-only cut planes, `explodeView`, object hiding, transparency, or `inspect sections` after the artifact exists.
 
-Use this skill when the user asks for CAD files, STEP/STP files, build123d source, `@cad[...]` references, mechanical parts, assemblies, enclosures, brackets, fixtures, holes, counterbores, countersinks, slots, pockets, bosses, standoffs, ribs, fillets, chamfers, shells, source-level joints, mating, or measurements.
+### Import and Composition
 
-Also use it when the user asks for DXF, STL, 3MF, or native GLB output from CAD geometry. Keep those workflows secondary and load `dxf.md` or `supported-exports.md` for details.
+- Always include the extension in relative imports: `require("./file.forge.js", { Param: value })` for model files, `require("./helpers.js")` for plain helper modules. Extensionless imports such as `require("./file")` do not resolve; ForgeCAD resolves project imports by exact path.
+- ForgeCAD APIs are injected globals in `.forge.js` files. Use `bom()`, `box()`, `scene()`, `Shape`, etc. directly; never destructure those names from helpers (`const { bom } = require("./bom.js")`). Import helper files under a project-specific name such as `const bomHelpers = require("./bom.js")`.
+- For static multi-part models, connectors + `matchTo()` are the default way to assemble touching parts.
+- Top-level scripts can return `Assembly` or `SolvedAssembly` directly. Do not call `.toGroup()` just to render an assembly; use it only when you need `ShapeGroup` composition, transforms, or named-child lookup.
+- `Import.svgSketch()` loads SVG files (file format loader, not a module import).
+- `.placeReference('bottom', [0,0,0])` aligns any built-in anchor to a world coordinate; also works with custom `.withReferences()`.
+- Plain `.js` modules hold shared helpers/constants (not model imports).
 
-Do not use this skill for render-only concept art, CAM toolpaths, engineering certification, FEA conclusions, architectural BIM, or freehand illustration unless the user also needs CAD geometry.
+### ManfacterCAD Code Convention
 
-## Default assumptions
+When generating code for ManfacterCAD's `runCadCode` tool:
+- Use `const result = ...` at the END of your code to indicate the final shape.
+- You CAN also use `return ...` — both patterns are accepted.
+- Do NOT call `toSTL()`, `toGLB()`, or `toSTEP()` — the system exports automatically.
+- Example: `const base = box(100, 50, 20); const result = difference(base, cylinder(20, 5));`
 
-Use these defaults unless the user specifies otherwise:
+## Source Map
 
-- Units: millimeters.
-- Origin: center of the main part or assembly unless a mating interface or fixed root component suggests a better origin.
-- Base plane: XY.
-- Up/extrusion axis: positive Z.
-- Output geometry: closed, positive-volume solids unless the user requests surfaces or construction geometry.
-- STEP structure: one valid solid, a compound of solids, or a labeled assembly compound.
-- Assembly structure: fixed root part, part-local frames, named mating datums, build123d joints where applicable, and explicit generated placements.
-- Small plastic enclosure wall: 2.0-3.0 mm when unspecified.
-- Cosmetic fillet: 1.0-3.0 mm when safe for local geometry.
-- M3/M4/M5 normal clearance holes: 3.4/4.5/5.5 mm unless another standard is requested.
+Load groups top-to-bottom, stopping when you have what the task needs.
 
-Ask one focused clarification question only when missing information makes the model impossible, fit-critical, safety-critical, or compliance-bound. Otherwise proceed with explicit assumptions.
+### 1. Core API (always read first)
 
-## Natural-language specs only
+Execution model, colors, coordinate system, primitives, booleans, patterns, imports, parameters, topology, edge queries.
 
-Do not ask the user to provide a JSON specification and do not make JSON the user-facing workflow. Convert the user's prose into an internal CAD brief with dimensions, features, assumptions, output paths, and validation criteria. Use `references/natural-language-specs.md` for brief-writing patterns.
+- `{{SKILL_DIR}}/docs/API/core/concepts.md`
+- `{{SKILL_DIR}}/docs/generated/runtime-names.md`
+- `{{SKILL_DIR}}/docs/generated/core.md`
 
-## Root model
+### 2. Static Assembly and Positioning (for any multi-part model)
 
-Keep these roots separate:
+Axis conventions, winding rules, and placement strategy. If parts should touch in the final model, read this group before writing placement code. Connectors + `matchTo()` are the default for mating interfaces; raw `translate()` and `rotate()` are for free offsets, not assembly contracts.
 
-- **CAD skill directory**: this folder. Tool launchers live here as `scripts/step`, `scripts/inspect`, and `scripts/dxf`.
-- **Tool process cwd**: relative CAD targets are resolved from the command's current working directory. Use absolute target paths when running from the skill directory, or run from the workspace root and invoke the launchers with a path to this skill directory.
-- **Render**: this skill does not own Explorer startup. After creating or modifying supported artifacts, hand off explicit paths to `$render` when that skill is available; `$render` checks/reuses a live viewer and returns links.
+- `{{SKILL_DIR}}/docs/guides/coordinate-system.md`
+- `{{SKILL_DIR}}/docs/guides/positioning.md`
 
-Short command examples in this skill use launcher paths relative to the CAD skill directory. Adapt the launcher path or target path so project CAD files resolve from the intended workspace, not accidentally under the skill directory.
+### 3. Sketch APIs
 
-Prefer keeping a STEP output and its Python generator in the same directory so the source stays easy to discover. Unless the user explicitly requests otherwise, keep the STEP basename and generator basename the same even when they cannot live side by side.
+2D construction, transforms, booleans, paths, on-face sketching, extrusion, anchors, text, regions.
 
-## Available tools
+- `{{SKILL_DIR}}/docs/generated/sketch.md`
 
-From the CAD skill directory, the launcher shape is:
+### 4. Curves and Surfacing (for lofts, sweeps, splines)
 
-```bash
-python scripts/step ...
-python scripts/inspect ...
-python scripts/dxf ...
-```
+Smooth curves, Hermite splines, lofted and swept solids. For straps, inlays, guards, brace members, vents, or physical bands that live on a carrier surface, use `Carrier` + `SurfaceBody` surface-member primitives before reaching for `variableSweep`, SDF sculpting, or manual boolean overlap recipes.
 
-Use the active project Python interpreter. If only the repo-local virtualenv is available, invoke that interpreter while keeping the root model above explicit.
+- `{{SKILL_DIR}}/docs/guides/surface-members.md`
+- `{{SKILL_DIR}}/docs/generated/curves.md`
 
-Use `python scripts/<tool> --help` for the complete current command interface; reference docs show recommended workflows, not every flag.
+### 5. Assemblies and Mechanisms (for joints or kinematics)
 
-## Required workflow
+Assembly graph, joint types, couplings, validation, robot export.
 
-1. **Classify the task.** Identify whether this is a new part, new assembly, source modification, direct STEP/STP inspection, reference selection, measurement/mating check, render review, or secondary output request.
-2. **Load only the needed references.** Use the triggers below instead of reading the whole reference set.
-3. **Create a natural-language CAD brief.** Extract dimensions, units, coordinate convention, feature intent, output paths, assumptions, and validation targets.
-4. **Plan before coding.** Define parameters, labels, source paths, expected bounding boxes, and any mating/positioning datums before editing.
-5. **Edit source, not generated artifacts.** Prefer build123d Python with `gen_step()` for STEP generation.
-6. **Generate explicit targets.** Use `scripts/step` for STEP/STP generation and sidecars. Use `--kind part` or `--kind assembly` only for direct STEP/STP imports. Only ever use `--skip-explorer` when the user explicitly asks to skip Explorer, GLB/topology, or renderable topology output. Do not run directory-wide generation.
-7. **Validate geometrically.** Use `scripts/inspect refs --facts --planes --positioning`, then targeted `measure`, `mate`, `frame`, or `diff` when needed.
-8. **Hand off to render.** Always pass created or modified `.step`, `.stp`, `.stl`, `.3mf`, `.dxf`, or native `.glb` paths to `$render` for live viewer links when that skill is available.
-9. **Tier visual review.** For generation feedback, prefer the render skill's snapshot CLI over opening the viewer manually or using Playwright. Use snapshots when still image files are needed for multimodal critique, section/wireframe review, user-facing snapshots, or risk-based semantic validation. For non-trivial parts and assemblies, prefer one small diagnostic still-image packet after geometric validation. Generate GIFs only for STEP-module parameter animation review; otherwise use still snapshots, not GIFs. Do not run repeated snapshots unless a source repair changed visible geometry or a specific visual finding needs confirmation.
-10. **Repair and rerun.** If a check fails, change the smallest responsible source section, regenerate, and rerun the failed validation.
+- `{{SKILL_DIR}}/docs/generated/assembly.md`
 
-## Non-negotiables
+### 6. Sheet Metal (for bent parts, K-factor, flat patterns)
 
-- Treat generated STEP/STP, STL, 3MF, GLB/topology, DXF outputs, and Explorer sidecars as derived artifacts.
-- Keep STEP as the primary validated CAD artifact; DXF/STL/3MF are secondary unless the user explicitly says otherwise.
-- When a Python generator exists, run `scripts/step` on the generator. Use a direct STEP/STP target only when the generator is unavailable or the user explicitly identifies that STEP/STP file as the target.
-- Use named parameters, closed solids, explicit labels, and source-controlled geometry intent.
-- Author assembly positioning in source with part-local datums, explicit `Location` transforms, or build123d joints. Treat CLI `inspect mate` as read-only validation, not as a source-editing API.
-- Do not use `git status`, `git diff`, or file-size churn as CAD comparison for large exported STEP/STP, GLB/topology, STL, 3MF, or DXF artifacts. Compare source changes, `scripts/inspect` summaries, CAD Explorer renders, or CAD Explorer output instead; use path-limited git status only for bookkeeping.
-- Always hand off supported created or modified artifacts to `$render` for live viewer links when that skill is available; report if `$render` is unavailable or the viewer check fails.
-- Report only checks that actually ran or are directly supported by tool output.
-- If `$render` is unavailable or fails, say so and rely on CLI inspection for validation.
+Bend operations, flat pattern unfolding, K-factor configuration.
 
-## Progressive references
+- `{{SKILL_DIR}}/docs/generated/sheet-metal.md`
 
-Load these files only when their trigger applies:
+### 7. Output and Export (for STL/3MF/STEP, BOM, dimensions)
 
-- `references/natural-language-specs.md` — converting prose requirements into a CAD brief without requiring user JSON.
-- `references/parameters.md` — parameter, control, and animation design best practices.
-- `references/step-generation.md` — STEP generation, direct STEP/STP targets, part-vs-assembly behavior, and post-generation inspection.
-- `references/inspection-and-validation.md` — validation gates, `@cad[...]` refs, facts, planes, topology, measurements, mating, diff, frame, and final validation reporting.
-- `references/render-review.md` — risk-based render triggers, small render packets, targeted visual views, multimodal critique, and converting visual findings into geometry checks.
-- `references/positioning.md` — part-local datums, assembly transforms, build123d joints, CLI mate validation, and positioning reports.
-- `references/dxf.md` — secondary DXF workflow.
-- `references/supported-exports.md` — secondary STL/3MF/native GLB sidecar workflows.
-- `references/build123d-modeling.md` — build123d modeling patterns, topology, selectors, features, assemblies.
-- `references/repair-loop.md` — diagnosis and repair procedures.
+Mesh export, exact geometry export, bill of materials, dimension annotations.
 
-Final responses should include generated files, CAD Explorer links when `$render` is available, validation actually run, assumptions, and caveats. Use `references/inspection-and-validation.md` for report structure.
+- `{{SKILL_DIR}}/docs/generated/output.md`
+
+### 8. Toolbox (fasteners and standard parts)
+
+Parametric bolts, nuts, washers, standard hardware, gears, pipes, and structural profiles.
+
+- `{{SKILL_DIR}}/docs/generated/lib.md`
+- `{{SKILL_DIR}}/docs/generated/wood.md`
+
+### 9. Runtime Viewport APIs (for cut planes, exploded views, hiding, and animation playback)
+
+Viewer-only APIs such as cutPlane, explodeView, render labels, comparison references, and runtime display behavior.
+
+- `{{SKILL_DIR}}/docs/generated/viewport.md`
+
+### 10. Recipes and Debugging (for patterns and troubleshooting)
+
+Modeling patterns, debugging tactics, copyable snippets.
+
+- `{{SKILL_DIR}}/docs/guides/scene-presentation.md`
+- `{{SKILL_DIR}}/docs/guides/joint-design.md`
+
+### 11. CLI (for validation/render/export tasks)
+
+Test-run, export pipelines, debug flags.
+
+- `{{SKILL_DIR}}/docs/CLI.md`
+- `{{SKILL_DIR}}/docs/guides/inspection-bundles.md`
+
+### SDF Modeling (smooth booleans, TPMS, deformations, fromFunction)
+
+Primitives, smooth booleans, TPMS lattices, twist/bend/displace, morph, custom functions, gotchas. The doc preamble's precision caution applies to every SDF workflow.
+
+- `{{SKILL_DIR}}/docs/generated/sdf.md`

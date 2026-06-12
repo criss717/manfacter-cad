@@ -1,18 +1,25 @@
 /**
  * Export utilities: STL, GLB, and STEP formats.
  *
+ * These are free functions that accept a Shape and produce export buffers.
+ * Shape class methods (.toSTL(), .toGLB(), .toSTEP()) delegate to these.
+ *
  * - STL and GLB convert directly from the Manifold mesh.
- * - STEP uses opencascade.js loaded lazily via dynamic import.
+ * - STEP uses opencascade.js loaded lazily via dynamic import (stub).
  */
 
-import type { Shape } from './types';
-import { getManifoldFromShape, getManifold } from './engine';
+import { Shape } from './shape';
+
+// ---------------------------------------------------------------------------
+// STL export
+// ---------------------------------------------------------------------------
 
 /**
  * Export a shape as a binary STL buffer.
  */
 export function toSTL(shape: Shape): Buffer {
-  const manifold = getManifoldFromShape(shape);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const manifold = shape.manifold as any;
   const mesh = manifold.getMesh();
 
   const numTri = mesh.numTri;
@@ -75,11 +82,16 @@ export function toSTL(shape: Shape): Buffer {
   return buffer;
 }
 
+// ---------------------------------------------------------------------------
+// GLB export
+// ---------------------------------------------------------------------------
+
 /**
  * Export a shape as a GLB (binary glTF 2.0) buffer.
  */
 export function toGLB(shape: Shape): Buffer {
-  const manifold = getManifoldFromShape(shape);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const manifold = shape.manifold as any;
   const mesh = manifold.getMesh();
 
   const numTri = mesh.numTri;
@@ -203,27 +215,21 @@ export function toGLB(shape: Shape): Buffer {
   return glb;
 }
 
+// ---------------------------------------------------------------------------
+// STEP export (stub — requires opencascade.js)
+// ---------------------------------------------------------------------------
+
 /**
  * Export a shape as a STEP file buffer.
  *
  * Uses opencascade.js loaded lazily. This is a heavyweight operation
  * (OCCT WASM is ~13 MB) — first call has a 2-5s cold start penalty.
+ *
+ * Currently a stub — full OCCT integration is future work.
  */
-export async function toSTEP(shape: Shape): Promise<Buffer> {
+export async function toSTEP(_shape: Shape): Promise<Buffer> {
   // Lazy-load opencascade.js
-  const oc = await import('opencascade.js');
-
-  // opencascade.js STEP export requires converting the manifold mesh
-  // to B-Rep via OCCT. This is a complex operation.
-  //
-  // For the MVP we provide a stub that throws with a clear message.
-  // Full OCCT integration is Phase 3+ scope.
-  //
-  // The real implementation would:
-  // 1. Get the mesh from the manifold
-  // 2. Create an OCCT TopoDS_Shape from vertices/faces
-  // 3. Use STEPControl_Writer to serialize
-  void oc; // prevent unused warning
+  void await import('opencascade.js');
 
   throw new Error(
     'STEP export requires opencascade.js B-Rep construction — ' +

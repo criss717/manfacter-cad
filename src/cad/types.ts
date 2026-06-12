@@ -1,7 +1,9 @@
 /**
- * Core TypeScript interfaces for the ForgeCAD engine.
+ * Core TypeScript types for the ForgeCAD engine.
  * All shapes are immutable — operations return new instances.
  */
+
+import type { Vec3 } from './shape';
 
 /** Axis-aligned bounding box. */
 export interface BBox {
@@ -21,7 +23,7 @@ export interface CollisionResult {
 /** Definition of a tunable parameter exposed to the frontend property panel. */
 export interface ParamDef {
   name: string;
-  type: 'number' | 'bool' | 'select';
+  type: 'number' | 'bool' | 'choice';
   defaultValue: number | boolean | string;
   options?: {
     min?: number;
@@ -39,6 +41,20 @@ export interface ShapeMaterialProps {
   emissive?: string;
   opacity?: number;
   wireframe?: boolean;
+}
+
+/** Face reference with center point and outward normal. */
+export interface FaceRef {
+  name: string;
+  center: Vec3;
+  normal: Vec3;
+}
+
+/** Edge reference with start and end points. */
+export interface EdgeRef {
+  name: string;
+  start: Vec3;
+  end: Vec3;
 }
 
 /** Canonical camera angle for snapshot rendering. */
@@ -61,23 +77,4 @@ export interface ExportResult {
   stlBuffer?: Buffer;
   stepBuffer?: Buffer;
   params: ParamDef[];
-}
-
-/**
- * Immutable CAD shape wrapping a Manifold solid with metadata.
- * All operations return new Shape instances — never mutate in place.
- */
-export interface Shape {
-  /** Unique identifier for this shape. */
-  readonly id: string;
-  /** Underlying manifold-3d solid (opaque — access via engine helpers). */
-  readonly manifold: unknown;
-  /** Display color as CSS hex string (#rrggbb). */
-  readonly color: string;
-  /** Material properties for the renderer. */
-  readonly material: ShapeMaterialProps;
-  /** Original construction parameters (for parametric editing). */
-  readonly params: ParamDef[];
-  /** Cached bounding box (lazily computed, immutable). */
-  readonly dimensions: BBox | null;
 }

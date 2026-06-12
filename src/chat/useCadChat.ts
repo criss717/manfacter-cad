@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useCadStore, type CadTier, type ChatMessage } from "@/store/cadStore";
+import { useCadStore, type CadTier, type ChatMessage, type ParamDefEntry } from "@/store/cadStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { autoSaveConversation } from "@/store/autoSave";
 
@@ -106,6 +106,7 @@ export function useCadChat() {
   const setStepUrl = useCadStore((s) => s.setStepUrl);
   const setStlUrl = useCadStore((s) => s.setStlUrl);
   const setLastCode = useCadStore((s) => s.setLastCode);
+  const setParamDefs = useCadStore((s) => s.setParamDefs);
   const lastCode = useCadStore((s) => s.lastCode);
   const resetSessionKey = useCadStore((s) => s.resetSessionKey);
   const cancelRequestKey = useCadStore((s) => s.cancelRequestKey);
@@ -295,7 +296,14 @@ export function useCadChat() {
                         if (glbPath) setGlbUrl(glbPath);
                         if (stepPath) setStepUrl(stepPath);
                         if (stlPath) setStlUrl(stlPath);
-                        if (data.code) setLastCode(String(data.code), {});
+                        // Params for property panel
+                        if (data.paramDefs) {
+                          setParamDefs(data.paramDefs as ParamDefEntry[]);
+                        }
+                        // Code for param regeneration
+                        if (data.code) {
+                          setLastCode(String(data.code), {});
+                        }
                       }
                     } catch {
                       const response = String(r.response || "");
@@ -328,7 +336,7 @@ export function useCadChat() {
         autoSaveConversation();
       }
     },
-    [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, ensureConnection, buildEnrichedMessage, setComplexModalOpen, provider]
+    [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, setParamDefs, ensureConnection, buildEnrichedMessage, setComplexModalOpen, provider]
   );
 
   useEffect(() => {

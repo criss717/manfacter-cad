@@ -1,18 +1,21 @@
 /**
  * CAD agent system prompt and tier classification.
  *
- * Ported from backend/agent/prompt.py — adapted for manifold-3d JS patterns
- * instead of build123d Python patterns. The prompt is in Spanish because the
- * target users are Spanish-speaking mechanical engineers.
+ * ForgeCAD-aligned: uses Shape class methods, variadic booleans,
+ * correct primitive signatures, and ForgeCAD reference docs.
+ * The prompt is in Spanish because the target users are Spanish-speaking
+ * mechanical engineers.
  */
 
+import { readdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import type { Tier } from './types';
 
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
 
-export const GOTCHAS_VERSION = '2';
+export const GOTCHAS_VERSION = '3';
 
 // ---------------------------------------------------------------------------
 // Keyword sets for tier classification
@@ -123,36 +126,63 @@ export function classifyTier(text: string): Tier {
 }
 
 // ---------------------------------------------------------------------------
+// Reference file list — built dynamically from filesystem
+// ---------------------------------------------------------------------------
+
+let _referenceFiles: string[] | null = null;
+
+async function getReferenceFiles(): Promise<string[]> {
+  if (_referenceFiles) return _referenceFiles;
+
+  const refDir = resolve(process.cwd(), 'references');
+  try {
+    const entries = await readdir(refDir, { recursive: true });
+    _referenceFiles = entries
+      .filter((e) => typeof e === 'string' && e.endsWith('.md'))
+      .map((e) => String(e).replace(/\\/g, '/'));
+  } catch {
+    _referenceFiles = [];
+  }
+  return _referenceFiles;
+}
+
+/** Invalidate cached reference file list (called when files change). */
+export function invalidateReferenceCache(): void {
+  _referenceFiles = null;
+}
+
+// ---------------------------------------------------------------------------
 // GOTCHAS block
 // ---------------------------------------------------------------------------
 
-export const GOTCHAS = `## GOTCHAS (v${GOTCHAS_VERSION}) — Top manifold-3d patterns
+export const GOTCHAS = `## GOTCHAS (v${GOTCHAS_VERSION}) — ForgeCAD API patterns
 
-### Operaciones booleanas (CRITICAL)
-- \`union(shapes[])\`, \`subtract(base, cutters[])\`, \`intersect(shapes[])\`
-- Todas son INMUTABLES — devuelven un nuevo Shape, nunca mutan el original.
-- Las herramientas de corte DEBEN sobrepasar el target: usa \`box(w+2, h+2, d+2)\` centrado.
+### Boolean operations (CRITICAL)
+- \`union(s1, s2, s3)\`, \`difference(base, cutter1, cutter2)\`, \`intersection(s1, s2)\`
+- Variadic — pass shapes as separate arguments, NOT as an array.
+- All are INMUTABLE — return a new Shape, never mutate the original.
+- Cutters MUST extend beyond the target: use \`box(w+2, h+2, d+2)\` centered.
 
-### Primitivas
-- \`box(width, height, depth)\` — centro en origen por defecto.
-- \`cylinder(radius, height)\` — eje Z vertical.
-- \`sphere(radius)\` — centro en origen.
-- \`torus(majorRadius, minorRadius)\` — anillo en plano XY.
+### Primitives
+- \`box(x, y, z)\` — centered on XY, base at Z=0. NOT centered at origin.
+- \`cylinder(height, radius)\` — centered on XY, base at Z=0. Optional: \`radiusTop\`, \`segments\`.
+- \`sphere(radius)\` — centered at origin.
+- \`torus(majorRadius, minorRadius)\` — ring in XY plane, centered at origin.
 
-### Transformaciones (inmutables)
-- \`translate(shape, x, y, z)\` — mueve la pieza.
-- \`rotate(shape, xDeg, yDeg, zDeg)\` — rotación en grados.
-- \`scale(shape, factor)\` — escala uniforme.
-- \`mirror(shape, axis)\` — espejo respecto a un eje.
+### Chained transforms (Shape class methods)
+- \`shape.translate(x, y, z)\` — returns NEW Shape
+- \`shape.rotate([nx, ny, nz], angleDeg)\` or \`shape.rotateX(45)\` / \`rotateY\` / \`rotateZ\`
+- \`shape.scale(factor)\` or \`shape.scale([x, y, z])\` — returns NEW Shape
+- \`shape.mirror([nx, ny, nz])\` — mirror over plane defined by normal vector
 
-### Inspección SIEMPRE después de generar
-- Después de \`runCadCode\`, SIEMPRE llama \`inspectCadModel\` para verificar bbox y volumen.
-- Si el bbox no coincide con las dimensiones esperadas → corrige y regenera.
+### Inspection ALWAYS after generating
+- After \`runCadCode\`, ALWAYS call \`inspectCadModel\` to verify bbox and volume.
+- If bbox doesn't match expected dimensions → fix and regenerate.
 
-### MANUFACTURING (FDM / impresión 3D)
-- Pared mínima: ≥ 1.0 mm de espesor.
-- Clearance: caras que ensamblan requieren +0.2 mm de holgura.
-- Espesores < 0.8 mm no imprimen de forma fiable.
+### MANUFACTURING (FDM / 3D printing)
+- Minimum wall: ≥ 1.0 mm thickness.
+- Clearance: mating faces require +0.2 mm tolerance.
+- Thickness < 0.8 mm doesn't print reliably.
 `;
 
 // ---------------------------------------------------------------------------
@@ -181,9 +211,9 @@ Si el usuario da AL MENOS un número O dice "medidas estándar"/"tamaño normal"
 
 ## HERRAMIENTAS
 
-- runCadCode(code): Ejecuta código CAD JavaScript con manifold-3d. Devuelve URLs GLB/STL + hechos geométricos.
+- runCadCode(code): Ejecuta código CAD JavaScript con ForgeCAD manifold-3d. Devuelve URLs GLB/STL + datos geométricos.
 - inspectCadModel(modelId): Inspecciona un modelo generado: bbox, volumen, colisiones.
-- readReference(name): Lee un documento de referencia de manifold-3d.
+- readReference(name): Lee un documento de referencia ForgeCAD.
 - listOutputs(): Lista archivos generados.
 
 ## ARCHIVOS ANTIGUOS — NO navegar
@@ -210,14 +240,14 @@ Antes de CUALQUIER generación de código, clasifica la solicitud como SIMPLE o 
 
 CUANDO SIMPLE: Usa la API abajo. Genera código. Llama runCadCode. Listo.
 
-### PIEZAS COMPLEJAS → OBLIGATORIO: llama readReference("manifold-3d-guide.md") PRIMERO.
+### PIEZAS COMPLEJAS → OBLIGATORIO: llama readReference("forgecad/core.md") PRIMERO.
 DEBES llamar esta referencia ANTES de generar CUALQUIER código para:
 - Cualquier engranaje con dientes
 - Geometría helicoidal, espiral, rosca, resorte
 - Turbina, impulsor, hélice
 - Barrido (sweep) a lo largo de curva
 - Loft: conectar dos perfiles diferentes
-- Revolución: piezas torneadas, polezas, volantes
+- Revolución: piezas torneadas, poleas, volantes
 - Ensamblajes con > 2 piezas distintas
 - Cualquier pieza donde no estés seguro de la API correcta
 
@@ -238,52 +268,86 @@ Después de CADA runCadCode exitoso, DEBES llamar inspectCadModel.
 Reporta: dimensiones bbox, volumen, colisiones.
 Si los datos no son correctos → corrige y regenera.
 
-## API MANIFOLD-3D — OPERACIONES SIMPLES
+## FORGECAD API — Operaciones completas
 
 Primitivas:
-  box(width, height, depth)           → centro en origen
-  cylinder(radius, height)            → eje Z vertical
-  sphere(radius)                      → centro en origen
-  torus(majorRadius, minorRadius)     → anillo en XY
+  box(x, y, z)                              → centrado en XY, base en Z=0
+  cylinder(height, radius, radiusTop?, segments?) → centrado en XY, base en Z=0
+  sphere(radius, segments?)              → centrado en origen
+  torus(majorRadius, minorRadius, segments?) → anillo en plano XY
 
-Posicionamiento:
-  translate(shape, x, y, z)
-  rotate(shape, xDeg, yDeg, zDeg)
-  scale(shape, factor)
-  mirror(shape, 'x' | 'y' | 'z')
+Métodos de Shape (chainable, inmutables):
+  shape.translate(x, y, z)               → mueve
+  shape.rotate([nx, ny, nz], angleDeg)    → rota alrededor de eje
+  shape.rotateX(angleDeg)                  → rota alrededor de X
+  shape.rotateY(angleDeg)                  → rota alrededor de Y
+  shape.rotateZ(angleDeg)                  → rota alrededor de Z
+  shape.scale(factor) or shape.scale([x,y,z]) → escala
+  shape.mirror([nx, ny, nz])              → espejo sobre plano (NO string como 'x')
+  shape.boundingBox() → { min, max, size }
+  shape.volume() → number (mm³)
+  shape.surfaceArea() → number (mm²)
+  shape.numTri() → number
+  shape.isEmpty() → boolean
 
-Booleanos (inmutables):
-  union([shapeA, shapeB])
-  subtract(baseShape, [cutterShape])
-  intersect([shapeA, shapeB])
+Booleanos (variadic, inmutables):
+  union(s1, s2, s3)                          → combina
+  difference(base, cutter1, cutter2)         → resta
+  intersection(s1, s2)                       → intersección
 
-Inspección:
-  getBoundingBox(shape) → { min, max, size }
-  getVolume(shape) → number (mm³)
-  getSurfaceArea(shape) → number (mm²)
-  getTriangleCount(shape) → number
-  isEmpty(shape) → boolean
-  checkCollisions(shapes[]) → CollisionResult[]
+Caras nombradas (TrackedShape desde box/cylinder):
+  box(10, 20, 5).face('top')    → { center: [0,0,5], normal: [0,0,1] }
+  cylinder(10, 3).face('side')  → { center: [0,0,5], normal: [1,0,0] }
+  Caras de box: top, bottom, front, back, left, right
+  Caras de cylinder: top, bottom, side
 
-Exportación:
-  toSTL(shape) → Buffer
-  toGLB(shape) → Buffer
-  toSTEP(shape) → Buffer (requiere OCCT)
+Operaciones adicionales:
+  group(s1, s2, ...) → ShapeGroup         — agrupa formas
+  hull3d(s1, s2, ...) → Shape             — envolvente convexa
+  fillet(shape, radius) → Shape           — redondea aristas (stub)
+  chamfer(shape, size) → Shape            — bisela aristas (stub)
+  linearPattern(shape, count, spacing) → Shape — patrón lineal (stub)
+  circularPattern(shape, count, angle) → Shape — patrón circular (stub)
+
+Exportación (AUTOMÁTICA — no llames en tu código):
+  El sistema genera GLB y STL automáticamente después de runCadCode.
+  NO necesitas llamar toSTL/toGLB/toSTEP en tu código.
 
 Parámetros:
   Param.number("name", default, { min, max, step, unit })
   Param.bool("name", default)
-  Param.select("name", ["a", "b"], "a")
+  Param.choice("name", ["a", "b"], "a")
+
+## ESTRUCTURA DEL CÓDIGO — OBLIGATORIO
+
+Tu código DEBE terminar con 'const result = tuPieza;' o 'return tuPieza;' donde tuPieza es un Shape, TrackedShape o ShapeGroup válido. NO llames toSTL/toGLB/toSTEP (el sistema exporta automáticamente).
+
+Ejemplo completo de código válido:
+--- ejemplo ---
+const diametro = Param.number("Diámetro", 200, { min: 50, max: 500, unit: "mm" });
+const espesor = Param.number("Espesor", 10, { min: 2, max: 50, unit: "mm" });
+const brida = cylinder(espesor, diametro / 2);
+const agujero = cylinder(espesor + 2, 6.0);
+const resultado = difference(brida, agujero);
+const result = resultado;
+--- fin ejemplo ---
+
+Si tu código NO termina con const result = ... o return ... → FAIL automático.
 
 ## CRÍTICO
 
-- SIEMPRE usa variables con nombre para CADA dimensión:
-  const baseLength = 100.0; const baseWidth = 60.0; const baseHeight = 20.0;
-  const base = box(baseLength, baseWidth, baseHeight);
-  NUNCA escribas box(100.0, 60.0, 20.0)
+- USA Param.number() para TODAS las dimensiones que el usuario pueda querer ajustar:
+  const largo = Param.number("Largo", 100, { min: 10, max: 500, unit: "mm" });
+  const base = box(largo, ancho, alto);
+  NUNCA escribas números mágicos como box(100.0, 60.0, 20.0)
 
 - Unidades: milímetros. Z es ARRIBA.
-- El código debe ser JavaScript/TypeScript válido con imports de src/cad/.
+- El código debe ser JavaScript/TypeScript válido usando la API de ForgeCAD.
+- box(x, y, z) — centrado en XY con base en Z=0. NO llames box(width, depth, height).
+- cylinder(height, radius) — height PRIMERO, radius SEGUNDO.
+- mirror(shape, [nx, ny, nz]) — acepta vector normal, NO string como 'x' o 'y'.
+- Booleanos son variadic: difference(base, cutter1, cutter2), NO difference(base, [cutter1]).
+- NO uses toSTL(), toGLB(), toSTEP() en tu código — el sistema lo hace automático.
 `;
 
 const PROMPT_FOOTER = `## REGLAS DE RESPUESTA
@@ -303,8 +367,6 @@ export const CAD_AGENT_PROMPT = `${PROMPT_HEADER}\n${GOTCHAS}\n${PROMPT_FOOTER}`
 
 /**
  * Return the per-request directive text for the classified tier.
- * Prepended to the user message so the agent sees routing rules
- * alongside the request.
  */
 export function buildTierDirective(tier: Tier): string {
   if (tier === 'SIMPLE') {
@@ -317,7 +379,7 @@ export function buildTierDirective(tier: Tier): string {
   if (tier === 'COMPLEX') {
     return (
       '[CLASSIFIER NOTE — TIER: COMPLEX]\n' +
-      '- Reference policy: MANDATORY — call readReference("manifold-3d-guide.md") FIRST.\n' +
+      '- Reference policy: MANDATORY — call readReference("forgecad/core.md") FIRST.\n' +
       '- After a successful inspectCadModel you MUST report back to the user.\n'
     );
   }
