@@ -199,7 +199,7 @@ async function _runCadCode(code: string): Promise<string> {
     // Dynamically import cad modules and execute the code in a sandboxed context.
     // The code is expected to call functions from src/cad/ and assign to `module.exports`
     // or use `globalThis.__CAD_RESULT`.
-    const cad = await import('../cad/index.js');
+    const cad = await import('../cad/index');
     await cad.initEngine();
 
     // Build a sandbox context with all CAD functions
@@ -245,7 +245,7 @@ async function _runCadCode(code: string): Promise<string> {
     );
     await fn(...Object.values(sandbox));
 
-    const shape = sandbox.__CAD_RESULT as import('../cad/types.js').Shape | null;
+    const shape = sandbox.__CAD_RESULT as import('../cad/types').Shape | null;
     if (!shape || typeof shape !== 'object' || !('manifold' in shape)) {
       throw new Error(
         'El código no definió una variable `result` con un Shape válido. ' +
