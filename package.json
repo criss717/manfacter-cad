@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prepare": "next-ws patch",
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
@@ -23,12 +24,17 @@
     "clsx": "^2",
     "drizzle-orm": "^0",
     "framer-motion": "^12",
+    "manifold-3d": "^3.5.1",
     "next": "16.2.6",
     "next-auth": "5.0.0-beta.30",
+    "next-ws": "^2.2.7",
+    "opencascade.js": "^1.1.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "sharp": "^0.35.0",
     "tailwind-merge": "^3",
     "three": "^0.175",
+    "ws": "^8.21.0",
     "zod": "^4.4.3",
     "zustand": "^5"
   },
@@ -38,10 +44,12 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/three": "^0.175",
+    "@types/ws": "^8.18.1",
     "drizzle-kit": "^0",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
+    "tsx": "^4.22.4",
     "typescript": "^5"
   }
 }

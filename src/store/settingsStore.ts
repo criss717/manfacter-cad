@@ -4,7 +4,7 @@ export type LLMProvider =
   | "gemini"           // Gemini 3.5 Flash — Google API key (ADK)
   | "gemini-pro-google" // Gemini 3.1 Pro  — Google API key (ADK)
   | "gemini-2.5-pro"   // Gemini 2.5 Pro  — Google API key (ADK)
-  | "gemini-pro"       // Gemini 3.1 Pro  — via OpenCode Zen (port 8003)
+  | "gemini-pro"       // Gemini 3.1 Pro  — via OpenCode Zen
   | "sonnet"
   | "opus"
   | "qwen"
@@ -21,7 +21,7 @@ export type LLMProvider =
   | "kimi-go"             // Kimi K2.6 — GO (balanced)
   | "glm-go"              // GLM 5.1 — GO (stable)
   | "minimax-m3-go"       // MiniMax M3 — GO (fast)
-  | "deepseek-v4-pro-sdk"; // DeepSeek V4 Pro — Agents SDK (experimental, port 8004)
+  | "deepseek-v4-pro-sdk"; // DeepSeek V4 Pro — Agents SDK (experimental)
 
 const VALID_PROVIDERS: ReadonlySet<string> = new Set<LLMProvider>([
   "gemini", "gemini-pro-google", "gemini-2.5-pro", "gemini-pro",

@@ -5,31 +5,80 @@ import { useCadStore, type CadTier, type ChatMessage } from "@/store/cadStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { autoSaveConversation } from "@/store/autoSave";
 
-function getWsUrl(path: string, directPort: string): string {
-  if (process.env.NEXT_PUBLIC_PROXY) {
-    if (typeof window === "undefined") return "";
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    return `${proto}://${window.location.host}${path}`;
-  }
-  const host = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "127.0.0.1";
-  return `ws://${host}:${directPort}`;
+// ---------------------------------------------------------------------------
+// WS URL resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Feature flag: CAD_ENGINE controls which backend to use.
+ * - "manifold" (default): New TypeScript backend via Next.js WS
+ * - "build123d": Legacy Python backend (fallback during transition)
+ */
+function getCadEngine(): string {
+  return process.env.NEXT_PUBLIC_CAD_ENGINE ?? "manifold";
 }
 
-function getBackendUrl(): string {
-  if (process.env.NEXT_PUBLIC_PROXY) {
-    return "";
+function getWsUrl(): string {
+  const engine = getCadEngine();
+
+  // New ForgeCAD engine — single WS endpoint via Next.js
+  if (engine === "manifold") {
+    const configured = process.env.NEXT_PUBLIC_CAD_WS_URL;
+    if (configured) return configured;
+    // Fallback: same-origin WebSocket
+    if (typeof window !== "undefined") {
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      return `${proto}://${window.location.host}/api/cad/ws`;
+    }
+    return "ws://localhost:3000/api/cad/ws";
   }
-  const host = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "127.0.0.1";
-  return `http://${host}:8000`;
+
+  // Legacy build123d engine — multi-port routing
+  if (typeof window === "undefined") return "";
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}/ws/openai`;
 }
+
+// ---------------------------------------------------------------------------
+// Tool name mapping (snake_case ↔ camelCase) for backward compat
+// ---------------------------------------------------------------------------
+
+const TOOL_NAMES: Record<string, string> = {
+  // Old → new
+  run_cad_code: "runCadCode",
+  inspect_geometry: "inspectCadModel",
+  make_snapshot: "inspectCadModel", // snapshots now auto-generated
+  list_outputs: "listOutputs",
+  read_reference: "readReference",
+  analyze_image: "analyze_image",
+  // New names (pass-through)
+  runCadCode: "runCadCode",
+  inspectCadModel: "inspectCadModel",
+  listOutputs: "listOutputs",
+  readReference: "readReference",
+};
+
+function normalizeToolName(name: string): string {
+  return TOOL_NAMES[name] ?? name;
+}
+
+// ---------------------------------------------------------------------------
+// Progress / status messages
+// ---------------------------------------------------------------------------
 
 const PROGRESS: Record<string, string> = {
+  // New camelCase tool names
+  readReference: "Leyendo documentacion de referencia...",
+  runCadCode: "Generando codigo CAD...",
+  inspectCadModel: "Inspeccionando modelo...",
+  listOutputs: "Listando archivos generados...",
+  analyze_image: "Analizando la imagen...",
+  // Old snake_case (backward compat during transition)
   read_reference: "Leyendo documentacion de referencia...",
   run_cad_code: "Generando codigo CAD...",
   inspect_geometry: "Verificando medidas y calidad...",
   make_snapshot: "Renderizando vista previa...",
   list_outputs: "Listando archivos generados...",
-  analyze_image: "Analizando la imagen...",
 };
 
 const WAITING_MESSAGES: Record<string, string> = {
@@ -93,21 +142,11 @@ export function useCadChat() {
     }
   }, [cancelRequestKey, setComplexModalOpen]);
 
-  const getAgentUrl = useCallback(() => {
-    // gemini / gemini-pro-google → ADK server (Google API key, port 8002)
-    // deepseek-v4-pro-sdk      → Agents SDK server (port 8004, experimental)
-    // gemini-pro + everything else → OpenCode Zen server (port 8003)
-    const isGeminiDirect = provider === "gemini" || provider === "gemini-pro-google" || provider === "gemini-2.5-pro";
-    if (isGeminiDirect) return getWsUrl("/ws/gemini", "8002");
-    if (provider === "deepseek-v4-pro-sdk") return getWsUrl("/ws/sdk", "8004");
-    return getWsUrl("/ws/openai", "8003");
-  }, [provider]);
-
   const ensureConnection = useCallback(async (): Promise<WebSocket | null> => {
     const existing = wsRef.current;
     if (existing && existing.readyState === WebSocket.OPEN) return existing;
 
-    const wsUrl = getAgentUrl();
+    const wsUrl = getWsUrl();
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -123,14 +162,14 @@ export function useCadChat() {
       wsRef.current = null;
       return null;
     }
-  }, [getAgentUrl]);
+  }, []);
 
   const buildEnrichedMessage = useCallback((content: string): string => {
     if (firstMessageRef.current && lastCode) {
       firstMessageRef.current = false;
       const userMessages = messages.filter((m) => m.role === "user");
       if (userMessages.length >= 1) {
-        return `Actualmente tienes esta pieza CAD generada:\n\`\`\`python\n${lastCode}\n\`\`\`\n\nAhora el usuario pide: ${content}`;
+        return `Actualmente tienes esta pieza CAD generada:\n\`\`\`javascript\n${lastCode}\n\`\`\`\n\nAhora el usuario pide: ${content}`;
       }
     }
     firstMessageRef.current = false;
@@ -221,21 +260,23 @@ export function useCadChat() {
                 const tierFromEvent = parseTier(msg.tier);
                 if (tierFromEvent) currentTier = tierFromEvent;
                 if (msg.tool_call) {
-                  if (msg.tool_call.name === "run_cad_code") {
+                  const toolName = normalizeToolName(msg.tool_call.name);
+                  if (toolName === "runCadCode") {
                     attemptCount++;
                     if (attemptCount > 2) setComplexModalOpen(true);
                     setStreamingText(`Generando geometria 3D (intento ${attemptCount})...`);
                   } else {
-                    if (msg.tool_call.name === "read_reference") {
+                    if (toolName === "readReference") {
                       setComplexModalOpen(true);
                     }
-                    setStreamingText(PROGRESS[msg.tool_call.name] || msg.tool_call.name);
+                    setStreamingText(PROGRESS[toolName] || PROGRESS[msg.tool_call.name] || toolName);
                   }
                 }
 
                 if (msg.tool_result) {
+                  const toolName = normalizeToolName(msg.tool_result.name);
                   const r = msg.tool_result;
-                  if (r.name === "run_cad_code") {
+                  if (toolName === "runCadCode") {
                     try {
                       let data: Record<string, unknown>;
                       if (typeof r.response === "string") {
@@ -245,16 +286,22 @@ export function useCadChat() {
                       }
                       if (data.ok) {
                         setStreamingText("Geometria generada correctamente!");
-                        const base = getBackendUrl();
-                        if (data.glb_url) setGlbUrl(`${base}${String(data.glb_url)}`);
-                        if (data.step_url) setStepUrl(`${base}${String(data.step_url)}`);
-                        if (data.stl_url) setStlUrl(`${base}${String(data.stl_url)}`);
+                        // Support both camelCase (new) and snake_case (legacy) fields
+                        const glbPath = (data.glbUrl ?? data.glb_url) as string | undefined;
+                        const stepPath = (data.stepUrl ?? data.step_url) as string | undefined;
+                        const stlPath = (data.stlUrl ?? data.stl_url) as string | undefined;
+                        // For manifold engine, URLs are already relative paths (/api/cad/output/...)
+                        // No base URL prefix needed — Next.js serves them from same origin
+                        if (glbPath) setGlbUrl(glbPath);
+                        if (stepPath) setStepUrl(stepPath);
+                        if (stlPath) setStlUrl(stlPath);
                         if (data.code) setLastCode(String(data.code), {});
                       }
                     } catch {
                       const response = String(r.response || "");
-                      const glbMatch = response.match(/glb_url["'\s:]+["']?(\/[^"'\s,}]+)/);
-                      if (glbMatch) { setGlbUrl(`${getBackendUrl()}${glbMatch[1]}`); setStreamingText("Geometria generada correctamente!"); }
+                      // Support both camelCase and snake_case in raw text
+                      const glbMatch = response.match(/(?:glbUrl|glb_url)["'\s:]+["']?(\/[^"'\s,}]+)/);
+                      if (glbMatch) { setGlbUrl(glbMatch[1]); setStreamingText("Geometria generada correctamente!"); }
                     }
                   } else {
                     setStreamingText(WAITING_MESSAGES.model_processing);
@@ -281,7 +328,7 @@ export function useCadChat() {
         autoSaveConversation();
       }
     },
-    [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, ensureConnection, buildEnrichedMessage, setComplexModalOpen]
+    [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, ensureConnection, buildEnrichedMessage, setComplexModalOpen, provider]
   );
 
   useEffect(() => {

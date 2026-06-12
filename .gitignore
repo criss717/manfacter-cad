@@ -48,5 +48,8 @@ AGENTS.md
 *.tsbuildinfo
 next-env.d.ts
 
+# generated CAD output
+/output/
+
 # scripts
 scripts/.metrics_check_state.json

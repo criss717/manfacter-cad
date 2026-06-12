@@ -17,6 +17,20 @@ export interface CadParams {
   [name: string]: number;
 }
 
+/** Structured parameter definition from the CAD engine. */
+export interface ParamDefEntry {
+  name: string;
+  type: "number" | "bool" | "select";
+  defaultValue: number | boolean | string;
+  options?: {
+    min?: number;
+    max?: number;
+    step?: number;
+    values?: string[];
+  };
+  unit?: string;
+}
+
 const DEFAULT_COLOR = "#0080ff";
 const DEFAULT_BG = "#f5f5f7";
 
@@ -32,6 +46,7 @@ interface CadStore {
   stlUrls: string[];
   lastCode: string | null;
   lastParams: CadParams;
+  paramDefs: ParamDefEntry[];
   modelColor: string;
   sceneBackground: string;
   pendingGlbUrl: string | null;
@@ -53,6 +68,7 @@ interface CadStore {
   addUrls: (glb: string | null, step: string | null, stl: string | null) => void;
   commitPendingGlb: () => void;
   setLastCode: (code: string | null, params: CadParams) => void;
+  setParamDefs: (defs: ParamDefEntry[]) => void;
   updateParam: (name: string, value: number) => void;
   setModelColor: (color: string) => void;
   setSceneBackground: (color: string) => void;
@@ -84,6 +100,7 @@ export const useCadStore = create<CadStore>((set) => ({
   stlUrls: [],
   lastCode: null,
   lastParams: {},
+  paramDefs: [],
   modelColor: DEFAULT_COLOR,
   sceneBackground: DEFAULT_BG,
   pendingGlbUrl: null,
@@ -115,6 +132,7 @@ export const useCadStore = create<CadStore>((set) => ({
     pendingGlbUrl: null,
   })),
   setLastCode: (code, params) => set({ lastCode: code, lastParams: params }),
+  setParamDefs: (defs) => set({ paramDefs: defs }),
   updateParam: (name, value) => set((s) => ({
     lastParams: { ...s.lastParams, [name]: value },
   })),
@@ -147,6 +165,7 @@ export const useCadStore = create<CadStore>((set) => ({
     stlUrls: [],
     lastCode: null,
     lastParams: {},
+    paramDefs: [],
     modelColor: DEFAULT_COLOR,
     sceneBackground: DEFAULT_BG,
     isProcessing: false,

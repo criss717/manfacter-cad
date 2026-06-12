@@ -5,12 +5,28 @@ import { motion } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
 import { autoSaveConversation, updateProjectColors } from "@/store/autoSave";
 
+/**
+ * Extract numeric parameters from code.
+ *
+ * Supports two formats:
+ * 1. New ForgeCAD: `Param.number("name", value, {min, max, step})` calls
+ * 2. Legacy Python-style: `name = 100.0` variable assignments
+ */
 function extractAllParams(code: string): Record<string, number> {
   const params: Record<string, number> = {};
 
-  // 1. Named variables: width = 100.0 (with optional leading whitespace)
-  const namedRe = /^\s*(\w+)\s*=\s*([\d.]+)\s*$/gm;
+  // 1. New ForgeCAD: Param.number("name", defaultValue)
+  const paramRe = /Param\.number\s*\(\s*["']([^"']+)["']\s*,\s*([\d.]+)/g;
   let m;
+  while ((m = paramRe.exec(code)) !== null) {
+    const name = m[1];
+    const val = parseFloat(m[2]);
+    if (!isNaN(val)) params[name] = val;
+  }
+  if (Object.keys(params).length > 0) return params;
+
+  // 2. Legacy: Named variables: width = 100.0 (with optional leading whitespace)
+  const namedRe = /^\s*(\w+)\s*=\s*([\d.]+)\s*$/gm;
   while ((m = namedRe.exec(code)) !== null) {
     const name = m[1];
     const val = parseFloat(m[2]);
@@ -19,7 +35,7 @@ function extractAllParams(code: string): Record<string, number> {
     }
   }
 
-  // 2. Box(100.0, 60.0, 20.0) — only if no named vars found
+  // 3. Box(100.0, 60.0, 20.0) — only if no named vars found
   if (Object.keys(params).length === 0) {
     const boxRe = /Box\(\s*((?:[\d.]+|[\w.]+))\s*,\s*((?:[\d.]+|[\w.]+))\s*,\s*((?:[\d.]+|[\w.]+))/g;
     while ((m = boxRe.exec(code)) !== null) {
@@ -31,7 +47,7 @@ function extractAllParams(code: string): Record<string, number> {
     }
   }
 
-  // 3. Cylinder(8.0, 50.0)
+  // 4. Cylinder(8.0, 50.0)
   if (Object.keys(params).length === 0) {
     const cylRe = /Cylinder\(\s*((?:radius\s*=\s*)?([\d.]+))\s*,\s*((?:height\s*=\s*)?([\d.]+))/g;
     while ((m = cylRe.exec(code)) !== null) {
@@ -49,12 +65,21 @@ function replaceNumberInCode(code: string, paramName: string, newValue: number):
   const isInteger = /(teeth|count|num|segments|sides)/i.test(paramName);
   const val = isInteger ? Math.round(newValue) : newValue;
 
+  // 1. New ForgeCAD: Param.number("name", OLD_VALUE, ...)
+  const paramRe = new RegExp(
+    `(Param\\.number\\s*\\(\\s*["']${escapeRegex(paramName)}["']\\s*,\\s*)([^,)]+)`,
+    "m"
+  );
+  const paramResult = code.replace(paramRe, `$1${val}`);
+  if (paramResult !== code) return paramResult;
+
+  // 2. Legacy: named variable assignment
   const escaped = paramName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const namedRe = new RegExp(`^(\\s*${escaped}\\s*=\\s*)[\\d.]+`, "m");
   const result = code.replace(namedRe, `$1${val}`);
   if (result !== code) return result;
 
-  // Fallback: Box params
+  // 3. Fallback: Box params
   if (paramName === "box_length" || paramName === "box_width" || paramName === "box_height") {
     const idx = paramName === "box_length" ? 1 : paramName === "box_width" ? 2 : 3;
     const boxRe = /(Box\()([\d.\s,]+)(\))/g;
@@ -70,7 +95,7 @@ function replaceNumberInCode(code: string, paramName: string, newValue: number):
     });
   }
 
-  // Fallback: Cylinder params
+  // 4. Fallback: Cylinder params
   if (paramName === "cyl_radius" || paramName === "cyl_height") {
     const idx = paramName === "cyl_radius" ? 1 : 2;
     const cylRe = /(Cylinder\()([\d.\s,]+)(\))/g;
@@ -89,6 +114,10 @@ function replaceNumberInCode(code: string, paramName: string, newValue: number):
   return code;
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export default function InspectorPanel() {
   const lastCode = useCadStore((s) => s.lastCode);
   const setGlbUrl = useCadStore((s) => s.setGlbUrl);
@@ -99,6 +128,7 @@ export default function InspectorPanel() {
   const setModelColor = useCadStore((s) => s.setModelColor);
   const sceneBackground = useCadStore((s) => s.sceneBackground);
   const setSceneBackground = useCadStore((s) => s.setSceneBackground);
+  const paramDefs = useCadStore((s) => s.paramDefs);
   const [dragValues, setDragValues] = useState<Record<string, number>>({});
   const [generating, setGenerating] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -106,6 +136,24 @@ export default function InspectorPanel() {
 
   const allParams = useMemo(() => lastCode ? extractAllParams(lastCode) : {}, [lastCode]);
   const paramEntries = Object.entries(allParams).filter(([, v]) => typeof v === "number");
+
+  // Merge structured paramDefs with code-extracted params
+  // Structured defs take precedence for display (they have min/max/unit metadata)
+  const structuredNumericDefs = useMemo(
+    () => paramDefs.filter((d) => d.type === "number"),
+    [paramDefs]
+  );
+  const boolDefs = useMemo(
+    () => paramDefs.filter((d) => d.type === "bool"),
+    [paramDefs]
+  );
+  const selectDefs = useMemo(
+    () => paramDefs.filter((d) => d.type === "select"),
+    [paramDefs]
+  );
+
+  // Use structured defs if available, otherwise fall back to code-extracted params
+  const hasStructuredDefs = structuredNumericDefs.length > 0 || boolDefs.length > 0 || selectDefs.length > 0;
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -174,7 +222,71 @@ export default function InspectorPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-        {hasCode && paramEntries.length > 0 && (
+        {/* Structured numeric params from Param.number() */}
+        {hasCode && hasStructuredDefs && structuredNumericDefs.length > 0 && (
+          <div>
+            <h3 className="text-footnote font-semibold text-graphite uppercase tracking-wider mb-3">Medidas</h3>
+            <div className={`space-y-3 ${generating ? "opacity-40 pointer-events-none" : ""}`}>
+              {structuredNumericDefs.map((def) => {
+                const value = typeof def.defaultValue === "number" ? def.defaultValue : parseFloat(String(def.defaultValue));
+                const min = def.options?.min ?? paramMin(value);
+                const max = def.options?.max ?? paramMax(value);
+                const step = def.options?.step ?? paramStep(value);
+                const unit = def.unit ?? "mm";
+                const displayVal = dragValues[def.name] ?? value;
+                const pct = max > min ? ((displayVal - min) / (max - min)) * 100 : 0;
+                return (
+                  <div key={def.name} className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-caption font-medium text-ink capitalize">{def.name.replace(/_/g, " ")}</label>
+                      <span className="text-footnote text-graphite tabular-nums">{dragValues[def.name] ?? value} {unit}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="range"
+                          min={min}
+                          max={max}
+                          step={step}
+                          value={dragValues[def.name] ?? value}
+                          onChange={(e) => setDragValues({ ...dragValues, [def.name]: parseFloat(e.target.value) })}
+                          onMouseUp={() => { const v = dragValues[def.name]; if (v !== undefined && v !== value) handleRegenerate(def.name, v); }}
+                          onTouchEnd={() => { const v = dragValues[def.name]; if (v !== undefined && v !== value) handleRegenerate(def.name, v); }}
+                          className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                          style={{
+                            background: `linear-gradient(to right, #0071e3 0%, #0071e3 ${pct}%, #e8e8ed ${pct}%, #e8e8ed 100%)`,
+                            accentColor: "#0071e3",
+                          }}
+                        />
+                      </div>
+                      <input
+                        type="number"
+                        min={min}
+                        max={max}
+                        step={step}
+                        value={dragValues[def.name] ?? value}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v)) {
+                            setDragValues({ ...dragValues, [def.name]: v });
+                            if (debounceRef.current) clearTimeout(debounceRef.current);
+                            debounceRef.current = setTimeout(() => {
+                              handleRegenerate(def.name, v);
+                            }, 600);
+                          }
+                        }}
+                        className="w-16 h-7 rounded-lg bg-fog text-body-sm text-ink text-right px-2 outline-none focus:ring-2 focus:ring-azure/30"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Legacy code-extracted params (when no structured defs) */}
+        {hasCode && !hasStructuredDefs && paramEntries.length > 0 && (
           <div>
             <h3 className="text-footnote font-semibold text-graphite uppercase tracking-wider mb-3">Medidas (mm)</h3>
             <div className={`space-y-3 ${generating ? "opacity-40 pointer-events-none" : ""}`}>
@@ -234,7 +346,58 @@ export default function InspectorPanel() {
           </div>
         )}
 
-        {hasCode && paramEntries.length === 0 && (
+        {/* Boolean params from Param.bool() */}
+        {hasCode && boolDefs.length > 0 && (
+          <div>
+            <h3 className="text-footnote font-semibold text-graphite uppercase tracking-wider mb-3">Opciones</h3>
+            <div className={`space-y-3 ${generating ? "opacity-40 pointer-events-none" : ""}`}>
+              {boolDefs.map((def) => {
+                const checked = typeof def.defaultValue === "boolean" ? def.defaultValue : def.defaultValue === "true";
+                return (
+                  <div key={def.name} className="flex items-center justify-between">
+                    <label className="text-caption font-medium text-ink capitalize">{def.name.replace(/_/g, " ")}</label>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={checked}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${checked ? "bg-azure" : "bg-silver-mist"}`}
+                    >
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Select params from Param.select() */}
+        {hasCode && selectDefs.length > 0 && (
+          <div>
+            <h3 className="text-footnote font-semibold text-graphite uppercase tracking-wider mb-3">Variantes</h3>
+            <div className={`space-y-3 ${generating ? "opacity-40 pointer-events-none" : ""}`}>
+              {selectDefs.map((def) => {
+                const values = def.options?.values ?? [];
+                const current = typeof def.defaultValue === "string" ? def.defaultValue : values[0] ?? "";
+                return (
+                  <div key={def.name} className="space-y-1.5">
+                    <label className="text-caption font-medium text-ink capitalize">{def.name.replace(/_/g, " ")}</label>
+                    <select
+                      defaultValue={current}
+                      className="w-full h-8 rounded-lg bg-fog border border-silver-mist text-caption text-ink px-2 focus:outline-none focus:border-azure/50 cursor-pointer"
+                    >
+                      {values.map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {hasCode && !hasStructuredDefs && paramEntries.length === 0 && (
           <div className="text-center py-8 space-y-2">
             <p className="text-caption text-graphite">Sin parametros detectados en el codigo.</p>
             <p className="text-caption text-graphite/60">Genera una pieza con dimensiones claras.</p>

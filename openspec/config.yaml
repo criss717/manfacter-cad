@@ -2,17 +2,21 @@ schema: spec-driven
 
 context: |
   Manfacter CAD — AI-powered 3D CAD generation (text/image → STEP/STL/GLB).
-  Frontend: Next.js 16.2 (App Router, Turbopack), React 19, TypeScript 5, R3F, Zustand, Tailwind CSS 4.
-  Backend: Python 3.11+, FastAPI, build123d/OpenCASCADE, Google ADK (Gemini), WebSocket session persistence.
+  Branch: forgecad.
+  Frontend: Next.js 16.2 (App Router, Turbopack), React 19.2, TypeScript 5 (strict), R3F (R9/D10/T0.175), Zustand 5, Tailwind CSS 4, Framer Motion 12.
+  Backend (current): Python 3.11+, FastAPI, build123d/OpenCASCADE, WebSocket agent server (multi-provider: Google ADK, OpenAI SDK, Anthropic, OpenCode Zen).
   Database: PostgreSQL via Drizzle ORM. Auth: next-auth 5 beta.
-  Spanish-first UI. Comportable Apple-style design. Multi-format export, repair loop (13 retries).
+  Spanish-first UI. Apple-style design. Multi-format export (STEP/STL/GLB), repair loop (13 retries).
+  CAD Engine Migration (planned): Python/build123d → JS/TS (manifold-3d, opencascade.js, Three.js). Preserve WS agent architecture, adapt for JS runtime.
 
+# forgecad migration — no test runner available yet
 strict_tdd: false
 
 testing:
   runner:
     command: ""
     framework: "none"
+    note: "No test runner configured. Project lacks vitest, jest, pytest configs. Add vitest or playwright for TDD enablement."
   layers:
     unit: false
     integration: false
@@ -35,18 +39,22 @@ rules:
   proposal:
     - Keep scope under 400 changed lines per PR
     - Include rollback plan for risky changes
+    - ForgeCAD migration: evaluate breaking changes to agent architecture before proposing
   specs:
     - Use Given/When/Then for scenarios
     - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Migration specs MUST include side-by-side comparison of Python vs JS engine behavior
   design:
     - Document architecture decisions with rationale
-    - Include sequence diagrams for multi-service flows (WS + HTTP + ADK)
+    - Include sequence diagrams for multi-service flows (WS + HTTP + multi-provider agents)
+    - Migration design MUST cover: engine abstraction layer, JS code-gen, fallback strategy
   tasks:
-    - Group by phase: backend, frontend, integration
+    - Group by phase: backend, frontend, integration, migration
     - Keep tasks completable in one session
   apply:
-    - Follow existing code patterns (Zustand stores, App Router conventions, FastAPI endpoints)
-    - Python: type hints required. TypeScript: strict mode
+    - Follow existing code patterns (Zustand stores, App Router conventions)
+    - TypeScript: strict mode required for all new code
+    - Migration code: maintain backward compatibility until engine swap is complete
     tdd: false
     test_command: ""
   verify:
@@ -56,3 +64,4 @@ rules:
   archive:
     - Warn before merging destructive deltas
     - Update main specs before archiving
+    - Archive migration-phase specs with "pre-migration" tag for historical reference
