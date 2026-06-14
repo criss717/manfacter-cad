@@ -61,12 +61,35 @@ export const MODEL_CONFIGS: Record<string, ProviderConfig> = {
   'deepseek-v4-pro-go': { model: 'deepseek-v4-pro', api: 'chat',     base_url: ZEN_GO_BASE },
   'mimo-v2.5-pro-go':   { model: 'mimo-v2.5-pro',   api: 'chat',     base_url: ZEN_GO_BASE },
   'kimi-go':            { model: 'kimi-k2.6',         api: 'chat',     base_url: ZEN_GO_BASE },
+  'kimi2.7-go':         { model: 'kimi-k2.7-code',         api: 'chat',     base_url: ZEN_GO_BASE, temperature: 1 },
   'glm-go':             { model: 'glm-5.1',           api: 'chat',     base_url: ZEN_GO_BASE },
   'qwen3.7-max-go':     { model: 'qwen3.7-max',       api: 'messages', base_url: ZEN_GO_BASE },
   'minimax-m3-go':      { model: 'minimax-m3',        api: 'messages', base_url: ZEN_GO_BASE },
 };
 
 const DEFAULT_PROVIDER = 'glm';
+
+// ---------------------------------------------------------------------------
+// Content type helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert ChatMessage.content (which may be string, array, or null)
+ * to a string or null. Extracts text from multipart content arrays.
+ */
+function contentToString(content: string | unknown[] | null): string | null {
+  if (content === null) return null;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const textParts = content
+      .filter((part): part is { text: string } =>
+        typeof part === 'object' && part !== null && 'text' in part
+      )
+      .map((part) => part.text);
+    return textParts.length > 0 ? textParts.join('') : JSON.stringify(content);
+  }
+  return String(content);
+}
 
 // ---------------------------------------------------------------------------
 // WebSocket sender helper
@@ -94,7 +117,7 @@ function toAnthropic(messages: ChatMessage[]): { system: string; msgs: unknown[]
 
   for (const msg of messages) {
     if (msg.role === 'system') {
-      system = msg.content ?? '';
+      system = contentToString(msg.content) ?? '';
       continue;
     }
 
@@ -105,7 +128,16 @@ function toAnthropic(messages: ChatMessage[]): { system: string; msgs: unknown[]
 
     if (msg.role === 'assistant') {
       const parts: unknown[] = [];
-      if (msg.content) parts.push({ type: 'text', text: msg.content });
+      if (msg.content) {
+        if (typeof msg.content === 'string') {
+          parts.push({ type: 'text', text: msg.content });
+        } else if (Array.isArray(msg.content)) {
+          // Multipart content (text + images)
+          for (const part of msg.content) {
+            parts.push(part);
+          }
+        }
+      }
       for (const tc of msg.tool_calls ?? []) {
         let input: unknown = {};
         try { input = JSON.parse(tc.function.arguments); } catch { /* noop */ }
@@ -143,12 +175,26 @@ function toGemini(messages: ChatMessage[]): { system: string | null; contents: u
 
   for (const msg of messages) {
     if (msg.role === 'system') {
-      system = msg.content;
+      system = contentToString(msg.content);
       continue;
     }
 
     if (msg.role === 'user') {
-      contents.push({ role: 'user', parts: [{ text: msg.content ?? '' }] });
+      const content = msg.content;
+      if (Array.isArray(content)) {
+        // Multipart: extract text and inline images
+        const parts: unknown[] = [];
+        for (const part of content) {
+          if (part && typeof part === 'object' && 'text' in part) {
+            parts.push({ text: (part as { text: string }).text });
+          } else if (part && typeof part === 'object' && 'image_url' in part) {
+            parts.push({ inlineData: { mimeType: 'image/png', data: (part as { image_url: { url: string } }).image_url.url.split(',')[1] || '' } });
+          }
+        }
+        contents.push({ role: 'user', parts });
+      } else {
+        contents.push({ role: 'user', parts: [{ text: content ?? '' }] });
+      }
       continue;
     }
 
@@ -177,7 +223,7 @@ function toGemini(messages: ChatMessage[]): { system: string | null; contents: u
 
       let respData: unknown;
       try {
-        const parsed = JSON.parse(msg.content ?? '');
+        const parsed = JSON.parse(contentToString(msg.content) ?? '');
         respData = typeof parsed === 'object' ? parsed : { output: msg.content };
       } catch {
         respData = { output: msg.content ?? '' };
@@ -256,7 +302,8 @@ async function dispatchChat(
   messages: ChatMessage[],
   model: string,
   apiKey: string,
-  baseUrl: string = ZEN_BASE
+  baseUrl: string = ZEN_BASE,
+  temperature: number = 0.2,
 ): Promise<void> {
   const endpoint = `${baseUrl}/chat/completions`;
 
@@ -276,7 +323,7 @@ async function dispatchChat(
             messages,
             tools: TOOL_DEFINITIONS,
             tool_choice: 'auto',
-            temperature: 0.2,
+            temperature,
             stream: false,
           }),
           signal: AbortSignal.timeout(300_000),
@@ -635,7 +682,7 @@ export async function runAgentLoop(
   } else if (api === 'gemini') {
     await dispatchGemini(ws, session.messages, model, apiKey);
   } else {
-    await dispatchChat(ws, session.messages, model, apiKey, baseUrl);
+    await dispatchChat(ws, session.messages, model, apiKey, baseUrl, config.temperature);
   }
 
   // Done
@@ -651,9 +698,14 @@ export async function runAgentLoop(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function _buildUserContent(text: string, imageData: string): string {
-  // For now, prepend image analysis context as text.
-  // The image was already analyzed by the pipeline.
+function _buildUserContent(text: string, imageData: string): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
+  // For vision-capable models, pass the image directly as multipart content
+  if (imageData && (imageData.startsWith('data:') || imageData.startsWith('http'))) {
+    return [
+      { type: 'text', text },
+      { type: 'image_url', image_url: { url: imageData } },
+    ];
+  }
   return text;
 }
 

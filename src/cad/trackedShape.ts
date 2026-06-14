@@ -28,12 +28,11 @@ export interface FaceRef {
 }
 
 export interface EdgeRef {
-  /** Descriptive name of the edge. */
   name: string;
-  /** Start point [x, y, z] of the edge. */
   start: Vec3;
-  /** End point [x, y, z] of the edge. */
   end: Vec3;
+  /** Normals of the two faces meeting at this edge (pointing outward from solid). */
+  faceNormals: [Vec3, Vec3];
 }
 
 // ---------------------------------------------------------------------------
@@ -60,19 +59,43 @@ export function buildRectExtrusionTopology(
   width: number,
   depth: number,
   height: number,
-): Map<string, FaceRef> {
+): { faces: Map<string, FaceRef>; edges: Map<string, EdgeRef> } {
   const w2 = width / 2;
   const d2 = depth / 2;
-  const h2 = height / 2;
 
-  return new Map<string, FaceRef>([
+  const faces = new Map<string, FaceRef>([
     ['top',    { name: 'top',    center: [0, 0, height],  normal: [0, 0, 1] }],
     ['bottom', { name: 'bottom', center: [0, 0, 0],       normal: [0, 0, -1] }],
-    ['front',  { name: 'front',  center: [0, d2, h2],     normal: [0, 1, 0] }],
-    ['back',   { name: 'back',   center: [0, -d2, h2],   normal: [0, -1, 0] }],
-    ['right',  { name: 'right',  center: [w2, 0, h2],     normal: [1, 0, 0] }],
-    ['left',   { name: 'left',   center: [-w2, 0, h2],    normal: [-1, 0, 0] }],
+    ['front',  { name: 'front',  center: [0, d2, height/2],     normal: [0, 1, 0] }],
+    ['back',   { name: 'back',   center: [0, -d2, height/2],   normal: [0, -1, 0] }],
+    ['right',  { name: 'right',  center: [w2, 0, height/2],     normal: [1, 0, 0] }],
+    ['left',   { name: 'left',   center: [-w2, 0, height/2],    normal: [-1, 0, 0] }],
   ]);
+
+  // 12 edges: each pair of adjacent faces with their normals
+  const t: Vec3 = [0, 0, 1], bm: Vec3 = [0, 0, -1]; // top, bottom
+  const fr: Vec3 = [0, 1, 0], bk: Vec3 = [0, -1, 0]; // front, back
+  const ri: Vec3 = [1, 0, 0], le: Vec3 = [-1, 0, 0]; // right, left
+
+  const edges = new Map<string, EdgeRef>([
+    // Top face edges
+    ['top_front',  { name: 'top_front',  start: [-w2, d2, height], end: [w2, d2, height], faceNormals: [t, fr] }],
+    ['top_back',   { name: 'top_back',   start: [w2, -d2, height], end: [-w2, -d2, height], faceNormals: [t, bk] }],
+    ['top_right',  { name: 'top_right',  start: [w2, -d2, height], end: [w2, d2, height], faceNormals: [t, ri] }],
+    ['top_left',   { name: 'top_left',   start: [-w2, d2, height], end: [-w2, -d2, height], faceNormals: [t, le] }],
+    // Bottom face edges
+    ['bottom_front', { name: 'bottom_front', start: [-w2, d2, 0], end: [w2, d2, 0], faceNormals: [bm, fr] }],
+    ['bottom_back',  { name: 'bottom_back',  start: [w2, -d2, 0], end: [-w2, -d2, 0], faceNormals: [bm, bk] }],
+    ['bottom_right', { name: 'bottom_right', start: [w2, -d2, 0], end: [w2, d2, 0], faceNormals: [bm, ri] }],
+    ['bottom_left',  { name: 'bottom_left',  start: [-w2, d2, 0], end: [-w2, -d2, 0], faceNormals: [bm, le] }],
+    // Vertical edges
+    ['front_right',  { name: 'front_right',  start: [w2, d2, 0], end: [w2, d2, height], faceNormals: [fr, ri] }],
+    ['front_left',   { name: 'front_left',   start: [-w2, d2, 0], end: [-w2, d2, height], faceNormals: [fr, le] }],
+    ['back_right',   { name: 'back_right',   start: [w2, -d2, 0], end: [w2, -d2, height], faceNormals: [bk, ri] }],
+    ['back_left',    { name: 'back_left',    start: [-w2, -d2, 0], end: [-w2, -d2, height], faceNormals: [bk, le] }],
+  ]);
+
+  return { faces, edges };
 }
 
 /**
@@ -89,12 +112,18 @@ export function buildRectExtrusionTopology(
  */
 export function buildCircleExtrusionTopology(
   height: number,
-): Map<string, FaceRef> {
-  return new Map<string, FaceRef>([
+): { faces: Map<string, FaceRef>; edges: Map<string, EdgeRef> } {
+  const faces = new Map<string, FaceRef>([
     ['top',    { name: 'top',    center: [0, 0, height],      normal: [0, 0, 1] }],
     ['bottom', { name: 'bottom', center: [0, 0, 0],          normal: [0, 0, -1] }],
     ['side',   { name: 'side',   center: [0, 0, height / 2], normal: [1, 0, 0] }],
   ]);
+  // Cylinder has 2 circular edges: top rim and bottom rim
+  const edges = new Map<string, EdgeRef>([
+    ['top_rim',    { name: 'top_rim',    start: [1, 0, height], end: [0, 1, height], faceNormals: [[0,0,1], [1,0,0]] }],
+    ['bottom_rim', { name: 'bottom_rim', start: [1, 0, 0],      end: [0, 1, 0],      faceNormals: [[0,0,-1], [1,0,0]] }],
+  ]);
+  return { faces, edges };
 }
 
 // ---------------------------------------------------------------------------
@@ -171,20 +200,47 @@ export class TrackedShape extends Shape {
       center[1] + y,
       center[2] + z,
     ]);
-    return new TrackedShape(newManifold, newFaces, this._edges, this.color, this.material, this.params);
+    // Translate moves start/end points; faceNormals (directions) stay the same.
+    const newEdges = new Map<string, EdgeRef>();
+    for (const [name, edge] of this._edges) {
+      newEdges.set(name, {
+        ...edge,
+        start: [edge.start[0] + x, edge.start[1] + y, edge.start[2] + z],
+        end: [edge.end[0] + x, edge.end[1] + y, edge.end[2] + z],
+        // faceNormals are direction vectors — unchanged by translation
+      });
+    }
+    return new TrackedShape(newManifold, newFaces, newEdges, this.color, this.material, this.params);
   }
 
   override rotate(axis: Vec3 | 'x' | 'y' | 'z', angleDeg: number): TrackedShape {
-    // For simplicity, when rotating a TrackedShape, we rebuild faces with
-    // bounding-box approximation rather than exact face center rotation.
-    // This is a pragmatic tradeoff: face normals rotate correctly,
-    // but face centers are recomputed from the new bounding box.
     const newShape = super.rotate(axis, angleDeg);
-    // After rotation, face topology is approximate. For precise tracking,
-    // the user would need to re-derive from the primitive. We keep face names
-    // but update normals via rotation.
     const newFaces = rotateFaces(this._faces, axis, angleDeg);
-    return new TrackedShape(newShape.manifold, newFaces, this._edges, newShape.color, newShape.material, newShape.params);
+
+    // Build a Rodrigues rotation function for edges
+    const rad = (angleDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    let rnx: number, rny: number, rnz: number;
+    if (axis === 'x') { rnx = 1; rny = 0; rnz = 0; }
+    else if (axis === 'y') { rnx = 0; rny = 1; rnz = 0; }
+    else if (axis === 'z') { rnx = 0; rny = 0; rnz = 1; }
+    else { [rnx, rny, rnz] = axis as Vec3; }
+    const len = Math.sqrt(rnx * rnx + rny * rny + rnz * rnz);
+    if (len !== 0) { rnx /= len; rny /= len; rnz /= len; }
+    const rotateVec = (v: Vec3): Vec3 => {
+      const [x, y, z] = v;
+      const d = x * rnx + y * rny + z * rnz;
+      const cx = rny * z - rnz * y;
+      const cy = rnz * x - rnx * z;
+      const cz = rnx * y - rny * x;
+      return [x * cos + cx * sin + rnx * d * (1 - cos),
+              y * cos + cy * sin + rny * d * (1 - cos),
+              z * cos + cz * sin + rnz * d * (1 - cos)];
+    };
+    const newEdges = transformEdges(this._edges, rotateVec);
+
+    return new TrackedShape(newShape.manifold, newFaces, newEdges, newShape.color, newShape.material, newShape.params);
   }
 
   override scale(factor: number | Vec3): TrackedShape {
@@ -204,17 +260,32 @@ export class TrackedShape extends Shape {
     const newManifold = (this.manifold as any).mirror(normal); // eslint-disable-line @typescript-eslint/no-explicit-any
     // Mirror flips face normals that are parallel to the mirror plane normal
     const newFaces = mirrorFaces(this._faces, normal);
-    return new TrackedShape(newManifold, newFaces, this._edges, this.color, this.material, this.params);
+
+    // Build mirror function for edges
+    const [nx, ny, nz] = normal;
+    const len2 = nx * nx + ny * ny + nz * nz;
+    const mirrorVec = len2 === 0
+      ? (v: Vec3): Vec3 => v
+      : (v: Vec3): Vec3 => {
+          const dot = v[0] * nx + v[1] * ny + v[2] * nz;
+          const factor = (2 * dot) / len2;
+          return [v[0] - factor * nx, v[1] - factor * ny, v[2] - factor * nz];
+        };
+    const newEdges = transformEdges(this._edges, mirrorVec);
+
+    return new TrackedShape(newManifold, newFaces, newEdges, this.color, this.material, this.params);
   }
 
-  // Stub overrides return TrackedShape
+  // Stub overrides return TrackedShape — these delegate to the free functions
+  // which now have real implementations. The override is needed so that
+  // shape.fillet(radius, edges) returns TrackedShape instead of plain Shape.
   override fillet(radius: number, edges?: unknown): TrackedShape {
-    console.warn('fillet() not yet fully implemented — use chamfer for beveled edges instead');
+    console.warn('fillet() on TrackedShape instance — use the free function fillet(shape, radius, edges) for full edge tracking.');
     return new TrackedShape(this.manifold, this._faces, this._edges, this.color, this.material, this.params);
   }
 
   override chamfer(size: number, edges?: unknown): TrackedShape {
-    console.warn('chamfer() not yet fully implemented — fillet and chamfer are stubs');
+    console.warn('chamfer() on TrackedShape instance — use the free function chamfer(shape, size, edges) for full edge tracking.');
     return new TrackedShape(this.manifold, this._faces, this._edges, this.color, this.material, this.params);
   }
 
@@ -365,6 +436,30 @@ function mirrorFaces(
       ...face,
       center: mirrorVec(face.center),
       normal: mirrorVec(face.normal),
+    });
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Edge transform helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Transform all edges: apply the same vector transform to start, end,
+ * and both faceNormals. Used for rotate and mirror which affect directions.
+ */
+function transformEdges(
+  edges: Map<string, EdgeRef>,
+  transformVec: (v: Vec3) => Vec3,
+): Map<string, EdgeRef> {
+  const result = new Map<string, EdgeRef>();
+  for (const [name, edge] of edges) {
+    result.set(name, {
+      ...edge,
+      start: transformVec(edge.start),
+      end: transformVec(edge.end),
+      faceNormals: [transformVec(edge.faceNormals[0]), transformVec(edge.faceNormals[1])],
     });
   }
   return result;

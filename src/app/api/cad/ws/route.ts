@@ -22,6 +22,10 @@ import {
  * - message → handleMessage (parses JSON, runs agent loop)
  * - close → handleDisconnect (cleans up session resources)
  */
+export function GET(): Response {
+  return new Response('Upgrade required', { status: 426 });
+}
+
 export function UPGRADE(client: WebSocket): void {
   handleConnection(client as unknown as import('@/agent/server').AgentWebSocket);
 

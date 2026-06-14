@@ -304,10 +304,14 @@ Caras nombradas (TrackedShape desde box/cylinder):
 Operaciones adicionales:
   group(s1, s2, ...) → ShapeGroup         — agrupa formas
   hull3d(s1, s2, ...) → Shape             — envolvente convexa
-  fillet(shape, radius) → Shape           — redondea aristas (stub)
-  chamfer(shape, size) → Shape            — bisela aristas (stub)
-  linearPattern(shape, count, spacing) → Shape — patrón lineal (stub)
-  circularPattern(shape, count, angle) → Shape — patrón circular (stub)
+  roundedBox(x, y, z, radius) → Shape    — caja con TODOS los bordes redondeados (USA ESTE en vez de fillet)
+  fillet(shape, radius, edgeName?)    — redondea aristas individuales (box/cylinder)
+  chamfer(shape, distance, edgeName?) — bisela aristas (box/cylinder)
+  linearPattern(shape, count, spacing) → Shape — patrón lineal
+  circularPattern(shape, count, angle) → Shape — patrón circular
+  gear(module, teeth, faceWidth) → Shape  — engranaje recto con perfil involuta
+  internalGear(module, teeth, faceWidth) → Shape — corona dentada interna
+  helicalGear(module, teeth, faceWidth, helixAngle?) → Shape — engranaje helicoidal (stub: devuelve recto)
 
 Exportación (AUTOMÁTICA — no llames en tu código):
   El sistema genera GLB y STL automáticamente después de runCadCode.
@@ -342,6 +346,15 @@ Si tu código NO termina con const result = ... o return ... → FAIL automátic
   NUNCA escribas números mágicos como box(100.0, 60.0, 20.0)
 
 - Unidades: milímetros. Z es ARRIBA.
+- fillet() SOLO funciona en box() y cylinder() individuales (ANTES de union/difference).
+  PATRÓN CORRECTO para soporte en L con redondeos:
+    const base = fillet(box(100, 80, 8), 3);  // redondea aristas de la caja base
+    const vert = fillet(box(8, 80, 80), 3);    // redondea aristas de la pata vertical
+    const soporte = union(base, vert.translate(46, 0, 44));  // unir después
+  NUNCA hagas fillet() DESPUÉS de union/difference — pierde efecto.
+  NUNCA construyas redondeos manuales con cilindros y esferas — usa fillet().
+- chamfer(biselado) funciona igual que fillet en aristas con nombre:
+    const bevel = chamfer(box(10, 10, 10), 2, 'top_front')
 - El código debe ser JavaScript/TypeScript válido usando la API de ForgeCAD.
 - box(x, y, z) — centrado en XY con base en Z=0. NO llames box(width, depth, height).
 - cylinder(height, radius) — height PRIMERO, radius SEGUNDO.

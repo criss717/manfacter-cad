@@ -14,6 +14,7 @@ import type {
   RunCadCodeResult,
   InspectResult,
   ListOutputsResult,
+  ParamDefEntry,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -40,7 +41,7 @@ export let _currentSessionId = '';
 export let _currentTier = 'MODERATE';
 
 /** Max CAD generation attempts per session. */
-const MAX_CAD_ATTEMPTS = 10;
+const MAX_CAD_ATTEMPTS = 20;
 
 // ---------------------------------------------------------------------------
 // Context setters (called by dispatch.ts)
@@ -215,6 +216,7 @@ async function _runCadCode(code: string): Promise<string> {
       group: cad.group,
       // Hull
       hull3d: cad.hull3d,
+      roundedBox: cad.roundedBox,
       // Features
       fillet: cad.fillet,
       chamfer: cad.chamfer,
@@ -334,6 +336,7 @@ async function _runCadCode(code: string): Promise<string> {
       loft: cad.loft,
       sweep: cad.sweep,
       Curve3D: cad.Curve3D,
+      Curve: cad.Curve,
       Route3D: cad.Route3D,
       Blend: cad.Blend,
       // Assembly
@@ -363,6 +366,9 @@ async function _runCadCode(code: string): Promise<string> {
       importSvgSketch: cad.importSvgSketch,
       partLibrary: cad.partLibrary,
       lib: cad.lib,
+      // Gears
+      gear: cad.gear,
+      internalGear: cad.internalGear,
       // SDF
       levelSet: cad.levelSet,
       // Shape classes
@@ -375,12 +381,13 @@ async function _runCadCode(code: string): Promise<string> {
 
     // Execute code — wrap in async function to support await.
     // Support both patterns: `const result = ...;` (explicit) and `return expr;` (ForgeCAD style)
+    // Block scope wrapping prevents `const` redeclaration errors when sandbox
+    // parameter names (box, hole, etc.) collide with user-declared `const` names.
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    const wrappedCode = `{\n${code}\nif (typeof result !== "undefined") { __CAD_RESULT = result; }\n}`;
     const fn = new AsyncFunction(
       ...Object.keys(sandbox),
-      // Check for `result` variable first, then fall back to `return` value
-      `${code}
-if (typeof result !== "undefined") { __CAD_RESULT = result; }
+      `${wrappedCode}
 return __CAD_RESULT;`
     );
 
@@ -454,17 +461,17 @@ return __CAD_RESULT;`
       stlUrl: `/api/cad/output/${modelId}/${modelId}.stl`,
       ...(stepUrl ? { stepUrl } : {}),
       facts: { bbox, volume, triangles: numTri },
-      paramDefs: (paramDefs ?? []).map((p: Record<string, unknown>) => {
-        // ParamValue has __paramDef; plain objects are already ParamDefs
-        const def = (p.__paramDef as Record<string, unknown>) ?? p;
+      paramDefs: (paramDefs ?? []).map((p) => {
+        const raw = p as unknown as Record<string, unknown>;
+        const def = (raw.__paramDef as Record<string, unknown> | undefined) ?? raw;
         return {
           name: def.name as string,
-          type: ((def.type as string) === 'select' ? 'choice' : def.type) as string,
-          defaultValue: def.defaultValue,
-          options: def.options,
-          unit: def.unit,
+          type: ((def.type as string) === 'select' ? 'choice' : def.type) as 'number' | 'bool' | 'choice',
+          defaultValue: def.defaultValue as number | boolean | string,
+          options: def.options as { min?: number; max?: number; step?: number; values?: string[] } | undefined,
+          unit: def.unit as string | undefined,
         };
-      }),
+      }) as ParamDefEntry[],
       code,
       tier,
     };

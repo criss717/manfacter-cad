@@ -25,6 +25,7 @@ export type Provider =
   | 'deepseek-v4-pro-go'
   | 'mimo-v2.5-pro-go'
   | 'kimi-go'
+  | 'kimi2.7-go'
   | 'glm-go'
   | 'qwen3.7-max-go'
   | 'minimax-m3-go'
@@ -39,7 +40,7 @@ export type Tier = 'SIMPLE' | 'MODERATE' | 'COMPLEX';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | unknown[] | null;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;
@@ -78,6 +79,7 @@ export interface ProviderConfig {
   model: string;
   api: 'chat' | 'messages' | 'gemini';
   base_url?: string;
+  temperature?: number;
 }
 
 // ---------------------------------------------------------------------------

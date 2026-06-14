@@ -266,6 +266,8 @@ export function useCadChat() {
                     attemptCount++;
                     if (attemptCount > 2) setComplexModalOpen(true);
                     setStreamingText(`Generando geometria 3D (intento ${attemptCount})...`);
+                    // Clear stale paramDefs when starting a new generation
+                    setParamDefs([]);
                   } else {
                     if (toolName === "readReference") {
                       setComplexModalOpen(true);

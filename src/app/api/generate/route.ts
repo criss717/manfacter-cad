@@ -112,11 +112,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     };
 
     // Execute code in sandboxed async context — support both `const result =` and `return`
+    // Block scope wrapping prevents `const` redeclaration errors when sandbox
+    // parameter names (box, hole, etc.) collide with user-declared `const` names.
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    const wrappedCode = `{\n${code}\nif (typeof result !== "undefined") { __CAD_RESULT = result; }\n}`;
     const fn = new AsyncFunction(
       ...Object.keys(sandbox),
-      `${code}
-if (typeof result !== "undefined") { __CAD_RESULT = result; }
+      `${wrappedCode}
 return __CAD_RESULT;`,
     );
 
@@ -172,6 +174,7 @@ return __CAD_RESULT;`,
       glbUrl: `/api/cad/output/${modelId}/${modelId}.glb`,
       stlUrl: `/api/cad/output/${modelId}/${modelId}.stl`,
       params,
+      code,
     });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);

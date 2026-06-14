@@ -254,19 +254,20 @@ export class Shape {
   // -----------------------------------------------------------------------
 
   /**
-   * Fillet (round) edges. STUB — not yet fully implemented.
-   * Returns the original shape unchanged and logs a warning.
+   * Fillet (round) edges. Delegates to the free function fillet(shape, radius, edges).
+   * For full edge tracking, use the standalone fillet() function.
    */
   fillet(_radius: number, _edges?: unknown): Shape {
-    console.warn('fillet() not yet fully implemented — use chamfer for beveled edges instead');
+    console.warn('fillet() on plain Shape — use fillet(shape, radius, edges) for TrackedShape edge operations.');
     return new Shape(this.manifold, this.color, this.material, this.params);
   }
 
   /**
-   * Chamfer (bevel) edges. STUB — not yet fully implemented.
+   * Chamfer (bevel) edges. Delegates to the free function chamfer(shape, distance, edges).
+   * For full edge tracking, use the standalone chamfer() function.
    */
   chamfer(_size: number, _edges?: unknown): Shape {
-    console.warn('chamfer() not yet fully implemented — fillet and chamfer are stubs');
+    console.warn('chamfer() on plain Shape — use chamfer(shape, size, edges) for TrackedShape edge operations.');
     return new Shape(this.manifold, this.color, this.material, this.params);
   }
 

@@ -10,11 +10,37 @@ import { TrackedShape, ShapeGroup, group } from './trackedShape';
 import { box, cylinder, sphere, torus } from './primitives';
 import { union, difference, intersection } from './booleans';
 import { translate, rotate, scale, mirror } from './transforms';
-import { hull3d, fillet, chamfer, shell } from './stubs';
+import { hull3d, fillet, chamfer, shell, roundedBox } from './stubs';
 import { getManifold } from './engine';
 
+// Real sketch/curve/surfacing implementations
+import {
+  Sketch as RealSketch,
+  rect as realRect,
+  circle2d as realCircle2d,
+  roundedRect as realRoundedRect,
+  polygon as realPolygon,
+  ngon as realNgon,
+  ellipse as realEllipse,
+  slot as realSlot,
+  star as realStar,
+  union2d as realUnion2d,
+  difference2d as realDifference2d,
+  intersection2d as realIntersection2d,
+  hull2d as realHull2d,
+  filletCorners as realFilletCorners,
+} from './sketch';
+import {
+  Curve3D as RealCurve3D,
+  spline3d as realSpline3d,
+} from './curves';
+import {
+  loft as realLoft,
+  sweep as realSweep,
+} from './surfacing';
+
 // Re-export existing functions that are part of the ForgeCAD surface
-export { hull3d, fillet, chamfer, shell };
+export { hull3d, fillet, chamfer, shell, roundedBox };
 
 // ---------------------------------------------------------------------------
 // Pattern helpers (working implementations)
@@ -111,7 +137,7 @@ export function moveToLocal(
 }
 
 // ---------------------------------------------------------------------------
-// Sketch 2D (all stubs — full 2D engine is future work)
+// Sketch 2D (real implementations)
 // ---------------------------------------------------------------------------
 
 const SKETCH_MSG =
@@ -123,28 +149,32 @@ function sketchStub(name: string): never {
   throw new Error(`${name}() not available. ${SKETCH_MSG}`);
 }
 
-export function rect(): never { sketchStub('rect'); }
-export function circle2d(): never { sketchStub('circle2d'); }
-export function roundedRect(): never { sketchStub('roundedRect'); }
-export function polygon(): never { sketchStub('polygon'); }
-export function ngon(): never { sketchStub('ngon'); }
-export function ellipse(): never { sketchStub('ellipse'); }
-export function slot(): never { sketchStub('slot'); }
-export function star(): never { sketchStub('star'); }
+export const Sketch = RealSketch;
+export const rect = realRect;
+export const circle2d = realCircle2d;
+export const roundedRect = realRoundedRect;
+export const polygon = realPolygon;
+export const ngon = realNgon;
+export const ellipse = realEllipse;
+export const slot = realSlot;
+export const star = realStar;
+
 export function path(): never { sketchStub('path'); }
 export function stroke(): never { sketchStub('stroke'); }
-export function union2d(): never { sketchStub('union2d'); }
-export function difference2d(): never { sketchStub('difference2d'); }
-export function intersection2d(): never { sketchStub('intersection2d'); }
-export function hull2d(): never { sketchStub('hull2d'); }
+
+export const union2d = realUnion2d;
+export const difference2d = realDifference2d;
+export const intersection2d = realIntersection2d;
+export const hull2d = realHull2d;
+
 export function constrainedSketch(): never { sketchStub('constrainedSketch'); }
 export function sketchFromSvg(): never { sketchStub('sketchFromSvg'); }
-export function filletCorners(): never { sketchStub('filletCorners'); }
+
+export const filletCorners = realFilletCorners;
+
 export function dxfSketch(): never { sketchStub('dxfSketch'); }
 export function svgSketch(): never { sketchStub('svgSketch'); }
-
-// Sketch geometry types — stubs
-export class Sketch { constructor() { sketchStub('Sketch'); } }
+// Sketch geometry types (stubs that are still not implemented)
 export class ConstraintSketch { constructor() { sketchStub('ConstraintSketch'); } }
 export class Point2D { x = 0; y = 0; }
 export class Line2D { a = new Point2D(); b = new Point2D(); }
@@ -163,7 +193,7 @@ export function degrees(r: number): number { return (r * 180) / Math.PI; }
 export function radians(d: number): number { return (d * Math.PI) / 180; }
 
 // ---------------------------------------------------------------------------
-// Curves & Surfacing (stubs)
+// Curves & Surfacing (real implementations + remaining stubs)
 // ---------------------------------------------------------------------------
 
 const CURVE_MSG =
@@ -174,13 +204,44 @@ function curveStub(name: string): never {
   throw new Error(`${name}() not available. ${CURVE_MSG}`);
 }
 
-export function spline2d(): never { curveStub('spline2d'); }
-export function spline3d(): never { curveStub('spline3d'); }
-export function loft(): never { curveStub('loft'); }
-export function sweep(): never { curveStub('sweep'); }
-export class Curve3D { constructor() { curveStub('Curve3D'); } }
-export class Route3D { static fromPolyline(): Route3D { curveStub('Route3D.fromPolyline'); return new Route3D(); } }
-export class Blend { static arc(): Blend { curveStub('Blend.arc'); return new Blend(); } }
+export { spline2d } from './curves';
+
+export const spline3d = realSpline3d;
+export const Curve3D = RealCurve3D;
+/** @deprecated Use Curve3D instead — kept for ForgeCAD doc compatibility */
+export const Curve = Object.assign(RealCurve3D, {
+  Arc(start: [number, number, number], end: [number, number, number], radius: number) {
+    const mx = (start[0] + end[0]) / 2;
+    const my = (start[1] + end[1]) / 2;
+    const mz = (start[2] + end[2]) / 2;
+    const dx = end[0] - start[0], dy = end[1] - start[1], dz = end[2] - start[2];
+    const len = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+    const bulge = Math.min(radius, len * 0.5) * 0.5;
+    const nx = -dy / len, ny = dx / len;
+    const mid: [number, number, number] = [mx + nx * bulge, my + ny * bulge, mz];
+    return spline3d([start, mid, end], { tension: 0.5 });
+  },
+  Blend(start: [number, number, number], end: [number, number, number]) {
+    return spline3d([start, end], { tension: 0.5 });
+  },
+  Nurbs(points: [number, number, number][]) {
+    return spline3d(points, { tension: 0.5 });
+  },
+});
+export const loft = realLoft;
+export const sweep = realSweep;
+
+export class Route3D {
+  static fromPolyline(pts: number[][]): RealCurve3D {
+    const vec3pts = pts.map((p) => [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0] as [number, number, number]);
+    return spline3d(vec3pts, { tension: 0 });
+  }
+}
+export class Blend {
+  static arc(start: [number, number, number], end: [number, number, number], _radius: number): RealCurve3D {
+    return spline3d([start, end], { tension: 0.5 });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Features (stubs or basic implementations)
@@ -252,8 +313,11 @@ export function splitByPlane(_shape: Shape, _origin: Vec3, _normal: Vec3): Shape
   throw new Error('splitByPlane() not implemented.');
 }
 
-export function trimByPlane(_shape: Shape, _normal: Vec3, _origin: Vec3): Shape {
-  throw new Error('trimByPlane() not implemented.');
+export function trimByPlane(shape: Shape, normal: Vec3, origin: Vec3): Shape {
+  const manifold = shape.manifold as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const originOffset = origin[0] * normal[0] + origin[1] * normal[1] + origin[2] * normal[2];
+  const result = manifold.trimByPlane(normal, originOffset);
+  return new Shape(result, shape.color, shape.material);
 }
 
 export function shellShape(
@@ -525,6 +589,12 @@ export function lib(_name: string): never {
 export function levelSet(_fn: (x: number, y: number, z: number) => number, _bounds: Vec3): Shape {
   throw new Error('levelSet() not implemented — SDF modeling not yet supported.');
 }
+
+// ---------------------------------------------------------------------------
+// Gears
+// ---------------------------------------------------------------------------
+
+export { gear, internalGear, helicalGear } from './gears';
 
 // ---------------------------------------------------------------------------
 // Layout helpers

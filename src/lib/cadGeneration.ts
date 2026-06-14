@@ -25,6 +25,7 @@ export async function runCadGeneration(code: string): Promise<{
   stl?: string;
   facts?: Record<string, unknown>;
   params?: unknown[];
+  code?: string;
   error?: string;
 }> {
   const base = getRestUrl();
@@ -52,5 +53,6 @@ export async function runCadGeneration(code: string): Promise<{
     stl: stlUrl || undefined,
     facts: data.facts || undefined,
     params: data.params || undefined,
+    code: data.code || undefined,
   };
 }

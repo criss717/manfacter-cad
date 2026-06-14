@@ -17,6 +17,8 @@ export async function POST(req: Request) {
       glb: result.glb,
       step: result.step,
       stl: result.stl,
+      params: result.params ?? [],
+      code,
     });
   } catch (e) {
     console.error('[REGENERATE] Error:', e instanceof Error ? e.message : String(e));

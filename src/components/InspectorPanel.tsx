@@ -124,6 +124,7 @@ export default function InspectorPanel() {
   const setStepUrl = useCadStore((s) => s.setStepUrl);
   const setStlUrl = useCadStore((s) => s.setStlUrl);
   const setLastCode = useCadStore((s) => s.setLastCode);
+  const setParamDefs = useCadStore((s) => s.setParamDefs);
   const modelColor = useCadStore((s) => s.modelColor);
   const setModelColor = useCadStore((s) => s.setModelColor);
   const sceneBackground = useCadStore((s) => s.sceneBackground);
@@ -184,7 +185,8 @@ export default function InspectorPanel() {
           if (data.glb) setGlbUrl(data.glb);
           if (data.step) setStepUrl(data.step);
           if (data.stl) setStlUrl(data.stl);
-          setLastCode(newCode, extractAllParams(newCode));
+          setParamDefs(data.params ?? []);
+          setLastCode(data.code ?? newCode, extractAllParams(data.code ?? newCode));
           setTimeout(() => autoSaveConversation(), 100);
         } else {
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -196,7 +198,7 @@ export default function InspectorPanel() {
         setGenerating(false);
       }
     },
-    [lastCode, generating, setLastCode, setGlbUrl, setStepUrl, setStlUrl]
+    [lastCode, generating, setLastCode, setGlbUrl, setStepUrl, setStlUrl, setParamDefs]
   );
 
   return (

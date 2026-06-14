@@ -22,10 +22,13 @@ const IMAGE_ANALYZER_B = 'minimax-m3-go';
 /** Models that natively accept images — skip the analysis pipeline. */
 export const MODELS_WITH_VISION: ReadonlySet<string> = new Set([
   'gemini-pro',
-  'minimax-m3-go',
+  'minimax',        // minimax-m2.7 supports vision
+  'minimax-m3-go',  // minimax-m3 supports vision
+  'kimi-go',        // kimi-k2.6 supports vision
+  'kimi2.7-go',     // kimi-k2.7-code supports vision
 ]);
 
-const ZEN_BASE = 'https://opencode.ai/zen/v1';
+//const ZEN_BASE = 'https://opencode.ai/zen/v1';
 const ZEN_GO_BASE = 'https://opencode.ai/zen/go/v1';
 
 const IMAGE_ANALYSIS_PROMPT = `Eres un ingeniero mecánico experto analizando una fotografía de una pieza fabricada.
@@ -89,7 +92,9 @@ REGLAS IMPORTANTES:
  */
 function parseImageDataUrl(dataUrl: string): { mediaType: string; base64: string } {
   if (dataUrl.includes(',')) {
-    const [header, b64] = dataUrl.split(',', 1);
+    const commaIdx = dataUrl.indexOf(',');
+    const header = dataUrl.slice(0, commaIdx);
+    const b64 = dataUrl.slice(commaIdx + 1);
     const mediaType = header.includes(':')
       ? header.split(';')[0].split(':').pop() ?? 'image/png'
       : 'image/png';

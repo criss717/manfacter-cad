@@ -33,7 +33,7 @@ export { box, cylinder, sphere, torus } from './primitives';
 export { union, difference, intersection } from './booleans';
 
 // Core stubs with real implementation or delegation
-export { hull3d, fillet, chamfer, shell } from './stubs';
+export { hull3d, fillet, chamfer, shell, roundedBox } from './stubs';
 
 // Transforms
 export { translate, rotate, scale, mirror } from './transforms';
@@ -55,7 +55,34 @@ export { toSTL, toGLB, toSTEP } from './export';
 // Params
 export { Param, collectParams, applyParams } from './params';
 
-// ── Full ForgeCAD API surface ──────────────────────────────────────────
+// Sketch 2D — real implementations (re-exported from sketch.ts)
+export {
+  Sketch,
+  rect,
+  circle2d,
+  roundedRect,
+  polygon,
+  ngon,
+  ellipse,
+  slot,
+  star,
+  union2d,
+  difference2d,
+  intersection2d,
+  hull2d,
+  filletCorners,
+} from './sketch';
+
+export type { Vec2 } from './sketch';
+
+// Curves — real implementations (re-exported from curves.ts)
+export { Curve3D, spline3d } from './curves';
+export type { Frame } from './curves';
+
+// Surfacing — real implementations (re-exported from surfacing.ts)
+export { loft, sweep } from './surfacing';
+
+// ── Full ForgeCAD API surface (remaining items) ──────────────────────────
 export {
   // Patterns (working)
   linearPattern,
@@ -117,27 +144,13 @@ export {
   // Plane intersection
   intersectWithPlane,
   projectToPlane,
-  // Sketch 2D
-  rect,
-  circle2d,
-  roundedRect,
-  polygon,
-  ngon,
-  ellipse,
-  slot,
-  star,
+  // Sketch 2D stubs (remaining)
   path,
   stroke,
-  union2d,
-  difference2d,
-  intersection2d,
-  hull2d,
   constrainedSketch,
   sketchFromSvg,
-  filletCorners,
   dxfSketch,
   svgSketch,
-  Sketch,
   ConstraintSketch,
   Point2D,
   Line2D,
@@ -150,14 +163,11 @@ export {
   Constraint,
   degrees,
   radians,
-  // Curves
+  // Curves remaining stubs
   spline2d,
-  spline3d,
-  loft,
-  sweep,
-  Curve3D,
   Route3D,
   Blend,
+  Curve,
   // Assembly
   assembly,
   joint,
@@ -185,6 +195,10 @@ export {
   importSvgSketch,
   partLibrary,
   lib,
+  // Gears
+  gear,
+  internalGear,
+  helicalGear,
   // SDF
   levelSet,
 } from './forgecad-api';

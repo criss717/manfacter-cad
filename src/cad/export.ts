@@ -228,9 +228,6 @@ export function toGLB(shape: Shape): Buffer {
  * Currently a stub — full OCCT integration is future work.
  */
 export async function toSTEP(_shape: Shape): Promise<Buffer> {
-  // Lazy-load opencascade.js
-  void await import('opencascade.js');
-
   throw new Error(
     'STEP export requires opencascade.js B-Rep construction — ' +
     'this will be implemented when OCCT WASM integration is complete. ' +

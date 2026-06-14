@@ -26,6 +26,7 @@ const PROVIDERS = [
   { id: "mimo-v2.5-pro-go",   label: "MiMo V2.5 Pro [GO]",             disabled: false },
   { id: "qwen3.7-max-go",     label: "Qwen 3.7 Max [GO]",              disabled: false },
   { id: "kimi-go",            label: "Kimi K2.6 [GO]",                 disabled: false },
+  { id: "kimi2.7-go",            label: "Kimi K2.7 [GO]",                 disabled: false },
   { id: "glm-go",             label: "GLM 5.1 [GO]",                   disabled: false },
   { id: "minimax-m3-go",      label: "MiniMax M3 [GO]",                disabled: false },
   { id: "deepseek-v4-pro-sdk", label: "DeepSeek V4 Pro [SDK]",          disabled: false },

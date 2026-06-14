@@ -60,8 +60,8 @@ export function box(
   const manifold = m.Manifold.cube([width, depth, height], true)
     .translate([0, 0, height / 2]);
 
-  const faces = buildRectExtrusionTopology(width, depth, height);
-  return new TrackedShape(manifold, faces);
+  const topo = buildRectExtrusionTopology(width, depth, height);
+  return new TrackedShape(manifold, topo.faces, topo.edges);
 }
 
 /**
@@ -92,8 +92,8 @@ export function cylinder(
   const manifold = m.Manifold.cylinder(height, radius, rTop, segments, false);
 
   // manifold cylinder with center=false is already at Z=0 base
-  const faces = buildCircleExtrusionTopology(height);
-  return new TrackedShape(manifold, faces);
+  const topo = buildCircleExtrusionTopology(height);
+  return new TrackedShape(manifold, topo.faces, topo.edges);
 }
 
 /**
