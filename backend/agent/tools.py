@@ -561,5 +561,41 @@ def make_snapshot(step_path: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def make_snapshots(step_path: str) -> dict:
+    """Render 5 canonical-view PNG screenshots of a generated model.
+
+    Views: front, back, left, right, bottom.
+
+    Args:
+        step_path: Path to the .step file (relative to output dir, e.g. 'abc123/abc123.step')
+
+    Returns:
+        dict with ok, views (dict of view_name → relative_url), and any error
+    """
+    from cad_engine.screenshot import render_multiview_snapshots
+
+    full_step = OUTPUT_DIR / step_path
+    if not full_step.exists():
+        return {"ok": False, "error": f"STEP file not found: {step_path}"}
+
+    model_dir = full_step.parent
+    glb_files = sorted(model_dir.glob("*.glb"))
+    if not glb_files:
+        return {"ok": False, "error": "No GLB file found next to STEP. Generate the model first."}
+
+    try:
+        views = render_multiview_snapshots(glb_files[0], model_dir)
+        if not views:
+            return {"ok": False, "error": "All views failed to render"}
+
+        result: dict = {"ok": True, "views": {}}
+        for name, path in views.items():
+            rel = str(path.relative_to(OUTPUT_DIR)).replace("\\", "/")
+            result["views"][name] = f"/output/{rel}"
+        return result
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # Tool definitions for the agent
 TOOLS = [run_cad_code, inspect_geometry, read_reference, list_outputs, make_snapshot]

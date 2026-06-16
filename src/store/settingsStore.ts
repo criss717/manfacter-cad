@@ -19,6 +19,7 @@ export type LLMProvider =
   | "mimo-v2.5-pro-go"    // MiMo V2.5 Pro — GO (omnimodal)
   | "qwen3.7-max-go"      // Qwen 3.7 Max — GO (math/reasoning)
   | "kimi-go"             // Kimi K2.6 — GO (balanced)
+  | "kimi-go-2.7"         // Kimi 2.7 — GO (balanced)
   | "glm-go"              // GLM 5.1 — GO (stable)
   | "minimax-m3-go"       // MiniMax M3 — GO (fast)
   | "deepseek-v4-pro-sdk"; // DeepSeek V4 Pro — Agents SDK (experimental, port 8004)
@@ -28,7 +29,7 @@ const VALID_PROVIDERS: ReadonlySet<string> = new Set<LLMProvider>([
   "sonnet", "opus", "qwen", "minimax", "glm", "kimi", "deepseek",
   "mimo-v2.5-free", "deepseek-v4-flash-free", "nemotron-3-ultra-free",
   "deepseek-v4-pro-go", "mimo-v2.5-pro-go", "qwen3.7-max-go",
-  "kimi-go", "glm-go", "minimax-m3-go", "deepseek-v4-pro-sdk",
+  "kimi-go", "kimi-go-2.7", "glm-go", "minimax-m3-go", "deepseek-v4-pro-sdk",
 ]);
 
 interface SettingsStore {
@@ -48,7 +49,7 @@ function loadProvider(): LLMProvider {
         return data.provider as LLMProvider;
       }
     }
-  } catch {}
+  } catch { }
   return "gemini";
 }
 

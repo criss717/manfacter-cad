@@ -50,6 +50,7 @@ from agent.tools import (
     read_reference,
     list_outputs,
     make_snapshot,
+    make_snapshots,
     _attempt_counts,
     _current_session_id,
     _current_tier,
@@ -87,6 +88,7 @@ MODEL_CONFIGS: dict[str, dict] = {
     "deepseek-v4-pro-go": {"model": "deepseek-v4-pro", "api": "chat",     "base_url": ZEN_GO_BASE},
     "mimo-v2.5-pro-go":   {"model": "mimo-v2.5-pro",   "api": "chat",     "base_url": ZEN_GO_BASE},
     "kimi-go":            {"model": "kimi-k2.6",         "api": "chat",     "base_url": ZEN_GO_BASE},
+    "kimi-go-2.7":        {"model": "kimi-k2.7-code",          "api": "chat",     "base_url": ZEN_GO_BASE},
     "glm-go":             {"model": "glm-5.1",           "api": "chat",     "base_url": ZEN_GO_BASE},
     "qwen3.7-max-go":     {"model": "qwen3.7-max",       "api": "messages", "base_url": ZEN_GO_BASE},
     "minimax-m3-go":      {"model": "minimax-m3",        "api": "messages", "base_url": ZEN_GO_BASE},
@@ -221,6 +223,20 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "make_snapshots",
+            "description": "Render 5 canonical-view PNGs (front, back, left, right, bottom) of a generated model for detailed visual inspection. Use when you need to verify geometry from multiple angles.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "step_path": {"type": "string", "description": "Path to .step file (e.g. 'abc123/abc123.step')"}
+                },
+                "required": ["step_path"],
+            },
+        },
+    },
 ]
 
 TOOL_MAP = {
@@ -229,6 +245,7 @@ TOOL_MAP = {
     "read_reference":   lambda args: read_reference(args["name"]),
     "list_outputs":     lambda args: json.dumps(list_outputs(), default=str),
     "make_snapshot":    lambda args: json.dumps(make_snapshot(args["step_path"]), default=str),
+    "make_snapshots":   lambda args: json.dumps(make_snapshots(args["step_path"]), default=str),
 }
 
 # Anthropic format: {name, description, input_schema}
@@ -597,6 +614,18 @@ async def _run_gemini_zen(
                 "content": result,
             })
 
+            # ── Auto-inspect after successful CAD generation ──────────
+            if name == "run_cad_code":
+                session_id = _current_session_id.get()
+                user_req = _last_user_request.get(session_id, "")
+                if user_req:
+                    inspection = await _auto_inspect_cad(websocket, result, user_req, api_key)
+                    if inspection:
+                        messages.append({
+                            "role": "user",
+                            "content": inspection,
+                        })
+
 
 # ── API handlers ───────────────────────────────────────────────────────────────
 
@@ -732,6 +761,18 @@ async def _run_chat(
                 "content": result,
             })
 
+            # ── Auto-inspect after successful CAD generation ──────────
+            if name == "run_cad_code":
+                session_id = _current_session_id.get()
+                user_req = _last_user_request.get(session_id, "")
+                if user_req:
+                    inspection = await _auto_inspect_cad(websocket, result, user_req, api_key)
+                    if inspection:
+                        messages.append({
+                            "role": "user",
+                            "content": inspection,
+                        })
+
 
 async def _run_messages(
     websocket, messages: list, model: str, api_key: str, base_url: str
@@ -841,6 +882,18 @@ async def _run_messages(
                 },
             }))
             messages.append({"role": "tool", "tool_call_id": b["id"], "content": result})
+
+            # ── Auto-inspect after successful CAD generation ──────────
+            if b["name"] == "run_cad_code":
+                session_id = _current_session_id.get()
+                user_req = _last_user_request.get(session_id, "")
+                if user_req:
+                    inspection = await _auto_inspect_cad(websocket, result, user_req, api_key)
+                    if inspection:
+                        messages.append({
+                            "role": "user",
+                            "content": inspection,
+                        })
 
 
 # ── Image analysis helper ──────────────────────────────────────────────────────
@@ -960,6 +1013,280 @@ async def _analyze_image_anthropic(image_data: str, user_text: str) -> str | Non
     return description or None
 
 
+# ── CAD auto-inspection (post-generation visual feedback) ────────────────────
+
+CAD_INSPECTION_PROMPT = """Eres un inspector de calidad revisando una pieza CAD generada automáticamente.
+
+Se te muestran 5 vistas (frontal, posterior, izquierda, derecha, inferior) de la pieza.
+
+Evalúa CONCRETAMENTE:
+1. ¿La geometría coincide con lo solicitado por el usuario?
+2. ¿Hay errores obvios? (agujeros mal ubicados, dimensiones incorrectas, sólidos separados, filetes/chaflanes mal aplicados)
+3. ¿Faltan características que el usuario pidió?
+4. ¿La pieza es simétrica donde debería serlo?
+5. Sugerencias concretas de corrección con MEDIDAS ESPECÍFICAS.
+
+Sé BREVE. Máximo 5-6 líneas. Solo menciona problemas REALES. Si la pieza es correcta, confírmalo en una línea."""
+
+# Track which model_ids have already been auto-inspected this session
+_auto_inspected_mids: set[str] = set()
+
+# Store last user request per session for auto-inspect context
+_last_user_request: dict[str, str] = {}
+
+
+async def _analyze_cad_snapshots(
+    png_paths: list[Path],
+    cad_facts: str,
+    user_request: str,
+    api_key: str,
+) -> str | None:
+    """Send 5 CAD snapshots to Kimi GO (chat API) for engineering inspection."""
+    import httpx
+    import base64
+
+    analyzer_config = MODEL_CONFIGS.get(IMAGE_ANALYZER)
+    if not analyzer_config:
+        return None
+
+    analyzer_model = analyzer_config["model"]
+    analyzer_base = analyzer_config.get("base_url", ZEN_BASE)
+    endpoint = f"{analyzer_base}/chat/completions"
+
+    # Build image parts for all 5 views
+    image_parts: list[dict] = []
+    view_names = {
+        "front": "frontal", "back": "posterior", "left": "izquierda",
+        "right": "derecha", "bottom": "inferior",
+    }
+    for png in png_paths:
+        b64 = base64.b64encode(png.read_bytes()).decode()
+        # Extract view name from filename: view_front.png → front
+        stem = png.stem  # view_front
+        view_key = stem.replace("view_", "")
+        label = view_names.get(view_key, view_key)
+        image_parts.append({"type": "text", "text": f"\n--- Vista {label.upper()} ---"})
+        image_parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+
+    messages = [
+        {"role": "system", "content": CAD_INSPECTION_PROMPT},
+        {"role": "user", "content": [
+            {"type": "text", "text": f"Inspecciona esta pieza CAD.\n\nDatos geométricos: {cad_facts}\n\nPetición original: {user_request}"},
+            *image_parts,
+        ]},
+    ]
+
+    req_headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    payload = {
+        "model": analyzer_model,
+        "messages": messages,
+        "temperature": 0.1,
+        "max_tokens": 1024,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(endpoint, headers=req_headers, json=payload)
+            if resp.status_code >= 400:
+                body = resp.text[:300]
+                print(f"[OPENAI] CAD SNAPSHOT ANALYSIS FAILED: HTTP {resp.status_code} — {body}")
+                return None
+            data = resp.json()
+    except Exception as e:
+        print(f"[OPENAI] CAD SNAPSHOT ANALYSIS FAILED: {type(e).__name__}: {e}")
+        return None
+
+    description = data["choices"][0]["message"]["content"]
+    print(f"[OPENAI] CAD SNAPSHOT ANALYSIS: {description[:120]}...")
+    return description
+
+
+async def _analyze_cad_snapshots_anthropic(
+    png_paths: list[Path],
+    cad_facts: str,
+    user_request: str,
+    api_key: str,
+) -> str | None:
+    """Send 5 CAD snapshots to MiniMax M3 GO (Anthropic API) for engineering inspection."""
+    import httpx
+    import base64
+
+    analyzer_config = MODEL_CONFIGS.get(IMAGE_ANALYZER_B)
+    if not analyzer_config:
+        return None
+
+    analyzer_model = analyzer_config["model"]
+    analyzer_base = analyzer_config.get("base_url", ZEN_BASE)
+    endpoint = f"{analyzer_base}/messages"
+
+    view_names = {
+        "front": "frontal", "back": "posterior", "left": "izquierda",
+        "right": "derecha", "bottom": "inferior",
+    }
+    content_blocks: list[dict] = []
+    for png in png_paths:
+        b64 = base64.b64encode(png.read_bytes()).decode()
+        stem = png.stem
+        view_key = stem.replace("view_", "")
+        label = view_names.get(view_key, view_key)
+        content_blocks.append({"type": "text", "text": f"\n--- Vista {label.upper()} ---"})
+        content_blocks.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}})
+
+    req_headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }
+
+    payload = {
+        "model": analyzer_model,
+        "system": CAD_INSPECTION_PROMPT,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"Inspecciona esta pieza CAD.\n\nDatos geométricos: {cad_facts}\n\nPetición original: {user_request}"},
+                    *content_blocks,
+                ],
+            },
+        ],
+        "max_tokens": 1024,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(endpoint, headers=req_headers, json=payload)
+            if resp.status_code >= 400:
+                body = resp.text[:300]
+                print(f"[OPENAI] CAD SNAPSHOT ANALYSIS B FAILED: HTTP {resp.status_code} — {body}")
+                return None
+            data = resp.json()
+    except Exception as e:
+        print(f"[OPENAI] CAD SNAPSHOT ANALYSIS B FAILED: {type(e).__name__}: {e}")
+        return None
+
+    content_blocks_out = data.get("content", [])
+    text_blocks = [b["text"] for b in content_blocks_out if b.get("type") == "text"]
+    description = " ".join(text_blocks) if text_blocks else ""
+    print(f"[OPENAI] CAD SNAPSHOT ANALYSIS B: {description[:120]}...")
+    return description or None
+
+
+async def _auto_inspect_cad(
+    websocket,
+    result_json: str,
+    user_request: str,
+    api_key: str,
+) -> str | None:
+    """Auto-inspect a freshly generated CAD model via vision models.
+
+    1. Renders 5 multi-view snapshots.
+    2. Sends them to both vision inspectors (Kimi + MiniMax) in parallel.
+    3. Returns merged feedback text, or None if inspection is unavailable.
+    """
+    try:
+        data = json.loads(result_json)
+    except Exception:
+        return None
+
+    if not data.get("ok"):
+        return None
+
+    model_id = data.get("model_id")
+    if not model_id:
+        return None
+
+    # Deduplicate: skip if this model_id was already inspected
+    if model_id in _auto_inspected_mids:
+        return None
+
+    step_path = f"{model_id}/{model_id}.step"
+    output_path = Path(__file__).parent.parent / "output"
+    model_dir = output_path / model_id
+
+    # 1. Render 5 snapshots
+    await websocket.send(json.dumps({
+        "type": "agent_event",
+        "tool_call": {"name": "inspect_visual", "args": {"model_id": model_id}},
+    }))
+
+    try:
+        from cad_engine.screenshot import render_multiview_snapshots
+    except Exception as e:
+        print(f"[OPENAI] Auto-inspect: import failed: {e}")
+        return None
+
+    glb_files = sorted(model_dir.glob("*.glb"))
+    if not glb_files:
+        print(f"[OPENAI] Auto-inspect: no GLB for {model_id}")
+        return None
+
+    try:
+        views = render_multiview_snapshots(glb_files[0], model_dir)
+    except Exception as e:
+        print(f"[OPENAI] Auto-inspect: snapshot render failed: {e}")
+        return None
+
+    png_paths = [p for name, p in views.items()]
+    if len(png_paths) < 3:
+        print(f"[OPENAI] Auto-inspect: only {len(png_paths)} views rendered, need ≥3")
+        return None
+
+    # 2. Extract geometry facts from the CAD result for context
+    cad_facts = ""
+    try:
+        facts = data.get("facts", {})
+        if facts:
+            bbox = facts.get("bbox", {})
+            solids = facts.get("solids", "?")
+            faces = facts.get("faces", "?")
+            cad_facts = f"bbox={bbox}, solids={solids}, faces={faces}"
+    except Exception:
+        pass
+
+    # 3. Send to both vision inspectors in parallel
+    print(f"[OPENAI] Auto-inspect: {len(png_paths)} views → {IMAGE_ANALYZER} + {IMAGE_ANALYZER_B}")
+    inspect_a, inspect_b = await asyncio.gather(
+        _analyze_cad_snapshots(png_paths, cad_facts, user_request, api_key),
+        _analyze_cad_snapshots_anthropic(png_paths, cad_facts, user_request, api_key),
+    )
+
+    # 4. Merge feedback
+    merged_parts = []
+    if inspect_a:
+        merged_parts.append(f"## Inspector A (Kimi):\n{inspect_a}")
+    if inspect_b:
+        merged_parts.append(f"## Inspector B (MiniMax):\n{inspect_b}")
+
+    if not merged_parts:
+        print(f"[OPENAI] Auto-inspect: both inspectors failed")
+        return None
+
+    feedback = (
+        "[INSPECCIÓN VISUAL AUTOMÁTICA — 5 vistas]\n"
+        + "\n\n".join(merged_parts)
+        + "\n\nCorrige la geometría si los inspectores encontraron errores. Si la pieza es correcta, confírmalo."
+    )
+
+    _auto_inspected_mids.add(model_id)
+    print(f"[OPENAI] Auto-inspect: feedback ready ({len(feedback)} chars)")
+
+    await websocket.send(json.dumps({
+        "type": "agent_event",
+        "tool_result": {
+            "name": "inspect_visual",
+            "response": feedback[:1000],
+        },
+    }))
+
+    return feedback
+
+
 # ── Main dispatcher ────────────────────────────────────────────────────────────
 
 async def process_user_message(
@@ -1051,6 +1378,9 @@ async def process_user_message(
     messages = SESSIONS[session_id]
     messages.append({"role": "user", "content": _build_user_content(augmented_text, image_data)})
 
+    # Store original user request for auto-inspect context
+    _last_user_request[session_id] = user_text
+
     base_url = config.get("base_url", ZEN_BASE)
     if api == "messages":
         await _run_messages(websocket, messages, model, api_key, base_url)
@@ -1120,6 +1450,7 @@ async def agent_session(websocket) -> None:
             release_session_resources(sid)
         except Exception as e:
             print(f"[OPENAI] cleanup error for {sid[:12]}: {e}")
+        _last_user_request.pop(sid, None)
     print(f"[OPENAI] DISCONNECT from={addr}")
 
 
