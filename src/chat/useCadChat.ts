@@ -169,7 +169,10 @@ export function useCadChat() {
     if (firstMessageRef.current && lastCode) {
       firstMessageRef.current = false;
       const userMessages = messages.filter((m) => m.role === "user");
-      if (userMessages.length >= 1) {
+      // Only inject previous code when the user is modifying the existing piece,
+      // not when they're asking for a completely new one.
+      const MODIFY_INDICATORS = /\b(modific|modify|cambi|change|ajust|ajusta|agreg|add|quit|remov|elimin|borr|sac|hacele|hazle|ponel|ponle)\b/i;
+      if (userMessages.length >= 1 && MODIFY_INDICATORS.test(content)) {
         return `Actualmente tienes esta pieza CAD generada:\n\`\`\`javascript\n${lastCode}\n\`\`\`\n\nAhora el usuario pide: ${content}`;
       }
     }
@@ -183,6 +186,11 @@ export function useCadChat() {
       doneRef.current = false;
       setProcessing(true);
       setStreamingText("Iniciando conexion...");
+
+      // Clear state from previous piece when starting a fresh generation
+      // (keep glbUrl until new model loads to avoid blank viewer flash)
+      setLastCode(null, {});
+      setParamDefs([]);
 
       const enriched = buildEnrichedMessage(content);
       const userMsg: ChatMessage = { id: `msg_${Date.now()}`, role: "user", content, timestamp: Date.now(), image: imageBase64 };

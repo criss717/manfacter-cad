@@ -329,36 +329,47 @@ export function loft(profiles: Sketch[], heights: number[]): Shape {
     }
   }
 
-  // Cap triangulation using proper polygon triangulation
-  // Bottom cap: add centroid as cap center, fan from it
+  // ─── Side wall triangle strips between adjacent rings ───
+  // Sin estas tiras, la malla queda abierta y Manifold.ofMesh() falla siempre.
+  for (let r = 0; r < numRings - 1; r++) {
+    const base0 = r * vertsPerRing;
+    const base1 = (r + 1) * vertsPerRing;
+    for (let v = 0; v < vertsPerRing; v++) {
+      const v0 = base0 + v;
+      const v1 = base0 + (v + 1) % vertsPerRing;
+      const v2 = base1 + v;
+      const v3 = base1 + (v + 1) % vertsPerRing;
+      triangleIndices.push(v0, v2, v1);
+      triangleIndices.push(v1, v2, v3);
+    }
+  }
+
+  // ─── Cap triangulation using fan from centroid ───
+  // Bottom cap
   const bottomRing2D = resampledRings[0].map(p => [p[0], p[1], 0] as CurveVec3);
   const bottomCentroid = polygonCentroid2D(bottomRing2D);
   const bottomCenterIdx = numRings * vertsPerRing;
   vertices.push(bottomCentroid[0], bottomCentroid[1], sortedHeights[0]);
 
-  // Top cap: same approach
+  // Top cap
   const topRing2D = resampledRings[numRings - 1].map(p => [p[0], p[1], 0] as CurveVec3);
   const topCentroid = polygonCentroid2D(topRing2D);
   const topCenterIdx = bottomCenterIdx + 1;
   vertices.push(topCentroid[0], topCentroid[1], sortedHeights[numRings - 1]);
 
-  // Add center vertex to 2D ring for fan triangulation
-  const bottomRingWithCenter = [...bottomRing2D, [bottomCentroid[0], bottomCentroid[1], 0] as CurveVec3];
-  const topRingWithCenter = [...topRing2D, [topCentroid[0], topCentroid[1], 0] as CurveVec3];
-
-  // Bottom cap: fan from center (index = ring length) to ring edges
+  // Bottom cap: fan (winding para normal hacia abajo)
   for (let v = 0; v < vertsPerRing; v++) {
     const v0 = v;
     const v1 = (v + 1) % vertsPerRing;
-    triangleIndices.push(bottomCenterIdx, v0, v1);
+    triangleIndices.push(bottomCenterIdx, v1, v0);
   }
 
-  // Top cap (reversed winding for outward-facing normals)
+  // Top cap (reversed winding para normal hacia arriba)
   const topRingBase = (numRings - 1) * vertsPerRing;
   for (let v = 0; v < vertsPerRing; v++) {
     const v0 = topRingBase + v;
     const v1 = topRingBase + (v + 1) % vertsPerRing;
-    triangleIndices.push(topCenterIdx, v1, v0);
+    triangleIndices.push(topCenterIdx, v0, v1);
   }
 
   // Validate with Manifold.ofMesh()
@@ -387,7 +398,9 @@ export function sweep(profile: Sketch, path: Curve3D | CurveVec3[]): Shape {
 
   // Sample path and compute frames
   const pathLength = curve.length();
-  const numSamples = Math.max(20, Math.ceil(pathLength / 2));
+  // Reducir densidad de muestreo: /4 en vez de /2 y tope máximo de 80
+  // para evitar mallas excesivamente densas que saturan manifold-3d
+  const numSamples = Math.min(80, Math.max(16, Math.ceil(pathLength / 4)));
   const frames = curve.frames(numSamples);
 
   // Get profile vertices

@@ -57,6 +57,18 @@ export interface EdgeRef {
   end: Vec3;
 }
 
+/** Query filter for selecting edges by geometric properties. */
+export interface EdgeQuery {
+  parallel?: Vec3;
+  perpendicular?: Vec3;
+  convex?: boolean;
+  concave?: boolean;
+  atZ?: number;
+  minLength?: number;
+  maxLength?: number;
+  within?: { min: Vec3; max: Vec3 };
+}
+
 /** Canonical camera angle for snapshot rendering. */
 export type SnapshotAngle =
   | 'front'

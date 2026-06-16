@@ -1,16 +1,17 @@
 /**
  * Stub functions for ForgeCAD API completeness.
  *
- * Fillet and chamfer use correct wedge-intersection and prism construction
- * via manifold-3d booleans. Shell remains a stub.
+ * Fillet y chamfer usan la estrategia optimizada de ForgeCAD:
+ * marco de coordenadas local + EDGE_PAD + operaciones booleanas mínimas.
+ * Shell remains a stub.
  */
 
 import { Shape, type Vec3 } from './shape';
-import { TrackedShape } from './trackedShape';
-import { box, cylinder, sphere } from './primitives';
-import { union, difference, intersection } from './booleans';
-import { translate, rotate } from './transforms';
+import { TrackedShape, type EdgeRef } from './trackedShape';
+import { box, sphere } from './primitives';
+import { union, difference } from './booleans';
 import { getManifold } from './engine';
+
 
 /**
  * Compute the convex hull of one or more shapes.
@@ -84,23 +85,95 @@ export function roundedBox(x: number, y: number, z: number, radius: number = 0):
   return hull3d(...corners);
 }
 
-// ---------------------------------------------------------------------------
-// Feature stubs — with working implementations for TrackedShape
-// ---------------------------------------------------------------------------
+/**
+ * Tolerancia de extensión para evitar caras coplanares en operaciones booleanas.
+ * Extender la herramienta de redondeo/chaflán más allá de los límites exactos
+ * de la arista elimina errores de precisión flotante en manifold-3d.
+ */
+const EDGE_PAD = 0.01;
 
 /**
- * Fillet (round) edges on a TrackedShape via wedge-intersection method.
+ * Construye la matriz 4×4 (column-major) que transforma desde coordenadas locales
+ * de la arista (basisX, basisY, edgeDir) al espacio global, con origen en el
+ * punto de inicio de la arista desplazado -EDGE_PAD a lo largo de la dirección.
+ */
+function edgeFrameMatrix(
+  start: Vec3,
+  axis: Vec3,
+  basisX: Vec3,
+  basisY: Vec3,
+  originOffset: number = 0,
+): number[] {
+  const origin: Vec3 = [
+    start[0] + axis[0] * originOffset,
+    start[1] + axis[1] * originOffset,
+    start[2] + axis[2] * originOffset,
+  ];
+  return [
+    basisX[0], basisX[1], basisX[2], 0,
+    basisY[0], basisY[1], basisY[2], 0,
+    axis[0],   axis[1],   axis[2],   0,
+    origin[0], origin[1], origin[2], 1,
+  ];
+}
+
+/**
+ * Calcula el marco de coordenadas local de una arista a partir de las normales
+ * de las dos caras adyacentes y los extremos de la arista.
  *
- * For each edge:
- *  1. Compute the dihedral angle φ between the two face normals.
- *  2. Compute the bisector direction and offset = radius / cos(φ/2).
- *  3. Build a cylinder of the requested radius centered along the bisector at offset distance.
- *  4. Build a wedge by intersecting a large box trimmed by the two face planes.
- *  5. Intersect the cylinder with the wedge → quarter-cylinder fillet.
- *  6. Convex edge (dot(n1,n2) ≤ 0): difference(shape, quarterCylinder)
- *     Concave edge (dot(n1,n2) > 0): union(shape, quarterCylinder)
+ * Retorna { axis, basisX, basisY, edgeLen, isConvex } o null si la arista es degenerada.
+ */
+function computeEdgeFrame(
+  start: Vec3,
+  end: Vec3,
+  n1: Vec3,
+  n2: Vec3,
+): { axis: Vec3; basisX: Vec3; basisY: Vec3; edgeLen: number; isConvex: boolean } | null {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const dz = end[2] - start[2];
+  const edgeLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (edgeLen < 1e-6) return null;
+
+  const axis: Vec3 = [dx / edgeLen, dy / edgeLen, dz / edgeLen];
+
+  // basisX: dirección perpendicular a la arista en la cara de n1 (proyección de n1 sobre el plano ⊥ a axis)
+  const dotN1 = n1[0] * axis[0] + n1[1] * axis[1] + n1[2] * axis[2];
+  const bxRaw: Vec3 = [n1[0] - dotN1 * axis[0], n1[1] - dotN1 * axis[1], n1[2] - dotN1 * axis[2]];
+  const bxLen = Math.sqrt(bxRaw[0] ** 2 + bxRaw[1] ** 2 + bxRaw[2] ** 2);
+  if (bxLen < 1e-6) return null;
+  const basisX: Vec3 = [bxRaw[0] / bxLen, bxRaw[1] / bxLen, bxRaw[2] / bxLen];
+
+  // basisY: dirección perpendicular a la arista en la cara de n2 (proyección de n2 sobre el plano ⊥ a axis)
+  const dotN2 = n2[0] * axis[0] + n2[1] * axis[1] + n2[2] * axis[2];
+  const byRaw: Vec3 = [n2[0] - dotN2 * axis[0], n2[1] - dotN2 * axis[1], n2[2] - dotN2 * axis[2]];
+  const byLen = Math.sqrt(byRaw[0] ** 2 + byRaw[1] ** 2 + byRaw[2] ** 2);
+  if (byLen < 1e-6) return null;
+  const basisY: Vec3 = [byRaw[0] / byLen, byRaw[1] / byLen, byRaw[2] / byLen];
+
+  // Convexidad: arista convexa cuando las normales divergen (dot ≤ 0)
+  const dot = n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2];
+  const isConvex = dot <= 0;
+
+  return { axis, basisX, basisY, edgeLen, isConvex };
+}
+
+/**
+ * Fillet (redondeo) de aristas usando la estrategia optimizada de ForgeCAD.
  *
- * Apply BEFORE boolean operations (union/difference).
+ * Para aristas convexas:
+ *   1. Resta un bloque cuadrado de esquina [radius × radius] a lo largo de la arista.
+ *   2. Suma un cilindro de radio = radius a lo largo de la arista.
+ *   → result = union(difference(base, cornerBlock), cylinder)
+ *   → Solo 2 operaciones booleanas por arista.
+ *
+ * Para aristas cóncavas:
+ *   1. Suma directamente el cilindro de relleno.
+ *   → result = union(base, cylinder)
+ *   → Solo 1 operación booleana por arista.
+ *
+ * Usa EDGE_PAD para extender las herramientas más allá de los extremos exactos
+ * de la arista, evitando caras coplanares que desestabilizan manifold-3d.
  */
 export function fillet(shape: Shape, radius: number, edges?: unknown): Shape {
   if (!(shape instanceof TrackedShape)) {
@@ -109,126 +182,106 @@ export function fillet(shape: Shape, radius: number, edges?: unknown): Shape {
   }
   if (radius <= 0) return shape;
 
-  const edgeNames = typeof edges === 'string' ? [edges]
-    : (Array.isArray(edges) ? edges as string[] : shape.edgeNames());
+  // Resolve edges parameter: string, string[], EdgeRef[], or undefined (all edges)
+  let edgeRefs: EdgeRef[];
 
-  if (edgeNames.length === 0) {
+  if (edges === undefined) {
+    // Use all named edges
+    edgeRefs = [];
+    for (const name of shape.edgeNames()) {
+      try { edgeRefs.push(shape.edge(name)); } catch {}
+    }
+  } else if (typeof edges === 'string') {
+    edgeRefs = [];
+    try { edgeRefs.push(shape.edge(edges)); } catch {}
+  } else if (Array.isArray(edges)) {
+    if (edges.length === 0) {
+      // Empty array → use all edges
+      edgeRefs = [];
+      for (const name of shape.edgeNames()) {
+        try { edgeRefs.push(shape.edge(name)); } catch {}
+      }
+    } else if (typeof edges[0] === 'string') {
+      edgeRefs = [];
+      for (const name of (edges as string[])) {
+        try { edgeRefs.push(shape.edge(name)); } catch {}
+      }
+    } else {
+      // Assume EdgeRef[]
+      edgeRefs = edges as EdgeRef[];
+    }
+  } else {
+    throw new Error('fillet(): invalid edges parameter. Use a string, string[], or EdgeRef[] from edgesOf()/selectEdges().');
+  }
+
+  if (edgeRefs.length === 0) {
+    const facesList = shape instanceof TrackedShape ? shape.faceNames().join(', ') : 'none';
     throw new Error(
-      'fillet() requires edges. Apply fillet BEFORE union/difference, or use it on a single box/cylinder.'
+      `fillet(): no edges found (faces: ${facesList}). ` +
+      `Use edgesOf('faceName') or selectEdges(shape, { convex: true }) to select edges. ` +
+      `Example: fillet(box(50,20,4), 4, edgesOf(box, 'top'))`
     );
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const m: any = getManifold();
   let result: Shape = shape;
-  for (const edgeName of edgeNames) {
+  const segments = 16;
+
+  for (const eref of edgeRefs) {
     try {
-      const eref = shape.edge(edgeName);
       if (!eref?.faceNormals) continue;
 
-      const [n1, n2] = eref.faceNormals;
-      const dx = eref.end[0] - eref.start[0];
-      const dy = eref.end[1] - eref.start[1];
-      const dz = eref.end[2] - eref.start[2];
-      const edgeLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const frame = computeEdgeFrame(eref.start, eref.end, eref.faceNormals[0], eref.faceNormals[1]);
+      if (!frame) continue;
 
-      // Oversized-radius guard: skip if radius * 2 > edge length
-      if (edgeLen < 1e-6 || radius * 2 > edgeLen) {
-        if (radius * 2 > edgeLen && edgeLen > 1e-6) {
-          console.warn(`fillet: radius ${radius} too large for edge '${edgeName}' (length ${edgeLen.toFixed(2)}), skipping`);
-        }
+      const { axis, basisX, basisY, edgeLen, isConvex } = frame;
+
+      // Guard: radio demasiado grande
+      if (radius * 2 > edgeLen && edgeLen > 1e-6) {
+        console.warn(`fillet: radius ${radius} too large for edge '${eref.name}' (length ${edgeLen.toFixed(2)}), skipping`);
         continue;
       }
 
-      // Dihedral angle between face normals
-      const dot = n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2];
-      const phi = Math.acos(Math.max(-1, Math.min(1, dot)));
-      const isConvex = dot <= 0;
+      // Extensión de la herramienta con padding para evitar superficies coplanares
+      const span = edgeLen + EDGE_PAD * 2;
+      const mat = edgeFrameMatrix(eref.start, axis, basisX, basisY, -EDGE_PAD);
 
-      // Bisector direction: n1 + n2 (points away from solid for convex edges)
-      const bx = n1[0] + n2[0];
-      const by = n1[1] + n2[1];
-      const bz = n1[2] + n2[2];
-      const blen = Math.sqrt(bx * bx + by * by + bz * bz);
-      if (blen < 1e-6) continue; // Degenerate: normals are anti-parallel
-
-      // Offset along bisector: radius / cos(φ/2)
-      const halfPhi = phi / 2;
-      const cosHalf = Math.cos(halfPhi);
-      if (Math.abs(cosHalf) < 1e-6) continue;
-      const offset = radius / cosHalf;
-
-      const bisector: Vec3 = [bx / blen, by / blen, bz / blen];
-
-      // Cylinder center is at edge.start + offset * bisector
-      // (start is one vertex of the edge; the bisector points away from the
-      //  edge toward the center of curvature)
-      const centerX = eref.start[0] + bisector[0] * offset;
-      const centerY = eref.start[1] + bisector[1] * offset;
-      const centerZ = eref.start[2] + bisector[2] * offset;
-
-      // Build cylinder along edge direction
-      const cyl = createAlignedCylinder(edgeLen, radius, [dx / edgeLen, dy / edgeLen, dz / edgeLen]);
-
-      // Position cylinder at center
-      const positioned: Shape = translate(cyl, centerX, centerY, centerZ);
-
-      // Build a large box and trim it with the two face planes to create a wedge
-      // that selects only the quarter-cylinder portion tangent to both faces.
-      const largeSize = edgeLen * 4;
-      const largeBox = box(largeSize, largeSize, largeSize);
-      const face1OriginOffset = eref.start[0] * n1[0] + eref.start[1] * n1[1] + eref.start[2] * n1[2];
-      const face2OriginOffset = eref.start[0] * n2[0] + eref.start[1] * n2[1] + eref.start[2] * n2[2];
-
-      // Build wedge: the region bounded by both face planes that contains the
-      // quarter-cylinder fillet volume.
-      //
-      // trimByPlane(normal, offset) keeps the half-space where dot(p, normal) ≤ offset.
-      //
-      // For convex edges (dot(n1,n2) ≤ 0): the fillet sits OUTSIDE the solid,
-      // in the region where dot(p, n1) ≥ offset1 and dot(p, n2) ≥ offset2.
-      // Use negated normals with negated offsets to keep that outer region.
-      //
-      // For concave edges (dot(n1,n2) > 0): the fillet fills the interior groove,
-      // in the region where dot(p, n1) ≤ offset1 and dot(p, n2) ≤ offset2.
-      // Use original normals and offsets.
-      let wedge: Shape;
       if (isConvex) {
-        const negN1: Vec3 = [-n1[0], -n1[1], -n1[2]];
-        const negN2: Vec3 = [-n2[0], -n2[1], -n2[2]];
-        wedge = trimByPlaneShape(
-          trimByPlaneShape(largeBox, negN1, -face1OriginOffset),
-          negN2,
-          -face2OriginOffset,
-        );
-      } else {
-        wedge = trimByPlaneShape(
-          trimByPlaneShape(largeBox, n1, face1OriginOffset),
-          n2,
-          face2OriginOffset,
-        );
-      }
+        // Arista convexa: restar esquina cuadrada + sumar cilindro
+        // La esquina cuadrada se posiciona en el cuadrante positivo (basisX+, basisY+)
+        // que corresponde al material sólido que sobra en la esquina.
+        const corner = m.CrossSection.square([radius, radius], false)
+          .extrude(span, 0, 0, undefined, false)
+          .transform(mat);
 
-      // Quarter-cylinder = intersection of cylinder and wedge
-      let quarterCyl: Shape;
-      try {
-        quarterCyl = intersection(positioned, wedge);
-      } catch {
-        // Boolean failure — skip this edge
-        console.warn(`fillet: boolean intersection failed for edge '${edgeName}', skipping`);
-        continue;
-      }
+        const cyl = m.CrossSection.circle(radius, Math.max(3, segments))
+          .extrude(span, 0, 0, undefined, false)
+          .transform(mat);
 
-      // Convex edge → add material (union) — round the outside corner
-      // Concave edge → remove material (difference) — round the inside groove
-      try {
-        if (isConvex) {
-          result = union(result, quarterCyl);
-        } else {
-          result = difference(result, quarterCyl);
+        try {
+          const base = (result as any).manifold;
+          const cut = m.Manifold.difference([base, corner]);
+          const joined = m.Manifold.union([cut, cyl]);
+          result = new Shape(joined, result.color, result.material);
+        } catch {
+          console.warn(`fillet: boolean operation failed for convex edge '${eref.name}', skipping`);
         }
-      } catch {
-        // Boolean failure — skip this edge
-        console.warn(`fillet: boolean operation failed for edge '${edgeName}', skipping`);
-        continue;
+      } else {
+        // Arista cóncava: sumar cilindro de relleno en el cuadrante negativo
+        // Se desplaza el cilindro hacia el interior del hueco cóncavo
+        const cyl = m.CrossSection.circle(radius, Math.max(3, segments))
+          .translate(-radius, -radius)
+          .extrude(span, 0, 0, undefined, false)
+          .transform(mat);
+
+        try {
+          const base = (result as any).manifold;
+          const joined = m.Manifold.union([base, cyl]);
+          result = new Shape(joined, result.color, result.material);
+        } catch {
+          console.warn(`fillet: boolean operation failed for concave edge '${eref.name}', skipping`);
+        }
       }
     } catch {
       // Edge not found — skip
@@ -237,48 +290,18 @@ export function fillet(shape: Shape, radius: number, edges?: unknown): Shape {
   return result;
 }
 
-/** Create a cylinder aligned along a direction, centered at origin, length units long. */
-function createAlignedCylinder(
-  length: number,
-  radius: number,
-  dir: readonly [number, number, number],
-): Shape {
-  const cyl = cylinder(length, radius);
-  const zAxis: readonly [number, number, number] = [0, 0, 1];
-  const cross: readonly [number, number, number] = [
-    zAxis[1] * dir[2] - zAxis[2] * dir[1],
-    zAxis[2] * dir[0] - zAxis[0] * dir[2],
-    zAxis[0] * dir[1] - zAxis[1] * dir[0],
-  ];
-  const crossLen = Math.sqrt(cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2);
-  if (crossLen > 1e-6) {
-    const angleRad = Math.asin(Math.min(1, crossLen));
-    const angleDeg = angleRad * 180 / Math.PI;
-    const axis: Vec3 = [cross[0] / crossLen, cross[1] / crossLen, cross[2] / crossLen];
-    return rotate(cyl, axis, angleDeg);
-  }
-  return cyl;
-}
-
 /**
- * Low-level `trimByPlane` on a Shape using manifold-3d's trimByPlane.
- * Takes a normal vector and a scalar originOffset (dot product of origin point with normal).
- */
-function trimByPlaneShape(shape: Shape, normal: Vec3, originOffset: number): Shape {
-  const manifold = shape.manifold as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const result = manifold.trimByPlane(normal, originOffset);
-  return new Shape(result, shape.color, shape.material);
-}
-
-/**
- * Chamfer (bevel) edges on a TrackedShape via triangular prism subtraction.
+ * Chamfer (chaflán/bisel) de aristas usando prisma triangular con padding.
  *
- * For each edge:
- *  1. Build a right-triangle CrossSection: [(0,0), (d,0), (0,d)]
- *  2. Extrude it along Z to create a triangular prism.
- *  3. Build a 4×4 transform mapping profile +X→inward face 1, +Y→inward face 2, +Z→edge dir.
- *  4. Apply transform and translate to edge start.
- *  5. Subtract the positioned prism from the shape (difference).
+ * Para aristas convexas:
+ *   Resta un prisma triangular [(0,0), (d,0), (0,d)] del sólido.
+ *   → result = difference(base, prism)
+ *
+ * Para aristas cóncavas:
+ *   Suma un prisma triangular de relleno.
+ *   → result = union(base, prism)
+ *
+ * Usa EDGE_PAD para estabilidad booleana.
  */
 export function chamfer(shape: Shape, distance: number, edges?: unknown): Shape {
   if (!(shape instanceof TrackedShape)) {
@@ -286,80 +309,94 @@ export function chamfer(shape: Shape, distance: number, edges?: unknown): Shape 
     return shape;
   }
 
-  const edgeNames = typeof edges === 'string' ? [edges]
-    : (Array.isArray(edges) ? edges as string[] : shape.edgeNames());
+  // Resolve edges parameter: string, string[], EdgeRef[], or undefined (all edges)
+  let edgeRefs: EdgeRef[];
+
+  if (edges === undefined) {
+    edgeRefs = [];
+    for (const name of shape.edgeNames()) {
+      try { edgeRefs.push(shape.edge(name)); } catch {}
+    }
+  } else if (typeof edges === 'string') {
+    edgeRefs = [];
+    try { edgeRefs.push(shape.edge(edges)); } catch {}
+  } else if (Array.isArray(edges)) {
+    if (edges.length === 0) {
+      edgeRefs = [];
+      for (const name of shape.edgeNames()) {
+        try { edgeRefs.push(shape.edge(name)); } catch {}
+      }
+    } else if (typeof edges[0] === 'string') {
+      edgeRefs = [];
+      for (const name of (edges as string[])) {
+        try { edgeRefs.push(shape.edge(name)); } catch {}
+      }
+    } else {
+      edgeRefs = edges as EdgeRef[];
+    }
+  } else {
+    throw new Error('chamfer(): invalid edges parameter. Use a string, string[], or EdgeRef[] from edgesOf()/selectEdges().');
+  }
+
+  if (edgeRefs.length === 0) {
+    const facesList = shape instanceof TrackedShape ? shape.faceNames().join(', ') : 'none';
+    throw new Error(
+      `chamfer(): no edges found (faces: ${facesList}). ` +
+      `Use edgesOf('faceName') or selectEdges(shape, { convex: true }) to select edges. ` +
+      `Example: chamfer(box(50,20,4), 2, edgesOf(box, 'top'))`
+    );
+  }
+
   let result = shape as Shape;
 
-  const m = getManifold();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const m: any = getManifold();
 
-  for (const edgeName of edgeNames) {
+  for (const eref of edgeRefs) {
     try {
-      const eref = (shape as TrackedShape).edge(edgeName);
       if (!eref?.faceNormals) continue;
 
-      const [n1, n2] = eref.faceNormals;
-      const dx = eref.end[0] - eref.start[0];
-      const dy = eref.end[1] - eref.start[1];
-      const dz = eref.end[2] - eref.start[2];
-      const edgeLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const frame = computeEdgeFrame(eref.start, eref.end, eref.faceNormals[0], eref.faceNormals[1]);
+      if (!frame) continue;
 
-      if (edgeLen < 1e-6) continue;
+      const { axis, basisX, basisY, edgeLen, isConvex } = frame;
 
-      // Oversized-distance guard: warn if distance > edge length but proceed
       if (distance > edgeLen) {
-        console.warn(`chamfer: distance ${distance} exceeds edge length ${edgeLen.toFixed(2)} on '${edgeName}', result may be imprecise`);
+        console.warn(`chamfer: distance ${distance} exceeds edge length ${edgeLen.toFixed(2)} on '${eref.name}', result may be imprecise`);
       }
 
       const d = distance;
-      // Right-triangle profile: [(0,0), (d,0), (0,d)]
-      const triProfile: [number, number][] = [[0, 0], [d, 0], [0, d]];
+      const span = edgeLen + EDGE_PAD * 2;
+      const mat = edgeFrameMatrix(eref.start, axis, basisX, basisY, -EDGE_PAD);
 
-      // Create CrossSection and extrude along Z
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cs = (m as any).CrossSection.ofPolygons([triProfile]) as { extrude: (h: number) => any };
-      const prismManifold = cs.extrude(edgeLen);
+      if (isConvex) {
+        // Prisma triangular en el cuadrante positivo: recorta la esquina
+        const triangle = new m.CrossSection([[[0, 0], [d, 0], [0, d]]]);
+        const prism = triangle
+          .extrude(span, 0, 0, undefined, false)
+          .transform(mat);
 
-      // Build orientation from face normals:
-      // Profile +Z → edge direction
-      // Profile +X → inward direction along face 1 (projection of -n2 onto plane perp to edge)
-      // Profile +Y → inward direction along face 2 (projection of -n1 onto plane perp to edge)
-      const ez: Vec3 = [dx / edgeLen, dy / edgeLen, dz / edgeLen];
+        try {
+          const base = (result as any).manifold;
+          const cut = m.Manifold.difference([base, prism]);
+          result = new Shape(cut, result.color, result.material);
+        } catch {
+          console.warn(`chamfer: boolean difference failed for convex edge '${eref.name}', skipping`);
+        }
+      } else {
+        // Arista cóncava: rellenar con prisma triangular en el cuadrante opuesto
+        const triangle = new m.CrossSection([[[0, 0], [-d, 0], [0, -d]]]);
+        const prism = triangle
+          .extrude(span, 0, 0, undefined, false)
+          .transform(mat);
 
-      // Inward along face 1: project -n2 onto plane perpendicular to ez
-      const negN2x = -n2[0], negN2y = -n2[1], negN2z = -n2[2];
-      const dotN2Ez = negN2x * ez[0] + negN2y * ez[1] + negN2z * ez[2];
-      let ex: Vec3 = [negN2x - dotN2Ez * ez[0], negN2y - dotN2Ez * ez[1], negN2z - dotN2Ez * ez[2]];
-      const exLen = Math.sqrt(ex[0] * ex[0] + ex[1] * ex[1] + ex[2] * ex[2]);
-      if (exLen < 1e-6) continue; // Degenerate: -n2 nearly parallel to edge
-      ex = [ex[0] / exLen, ex[1] / exLen, ex[2] / exLen];
-
-      // Inward along face 2: project -n1 onto plane perpendicular to ez
-      const negN1x = -n1[0], negN1y = -n1[1], negN1z = -n1[2];
-      const dotN1Ez = negN1x * ez[0] + negN1y * ez[1] + negN1z * ez[2];
-      let ey: Vec3 = [negN1x - dotN1Ez * ez[0], negN1y - dotN1Ez * ez[1], negN1z - dotN1Ez * ez[2]];
-      const eyLen = Math.sqrt(ey[0] * ey[0] + ey[1] * ey[1] + ey[2] * ey[2]);
-      if (eyLen < 1e-6) continue; // Degenerate: -n1 nearly parallel to edge
-      ey = [ey[0] / eyLen, ey[1] / eyLen, ey[2] / eyLen];
-
-      // Build 4×4 column-major transform matrix:
-      // Maps profile +X → ex, +Y → ey, +Z → ez, translated to edge start
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const transformMat = [
-        ex[0], ex[1], ex[2], 0,
-        ey[0], ey[1], ey[2], 0,
-        ez[0], ez[1], ez[2], 0,
-        eref.start[0], eref.start[1], eref.start[2], 1,
-      ];
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const transformedManifold = (prismManifold as any).transform(transformMat);
-      const positioned = new Shape(transformedManifold);
-
-      try {
-        result = difference(result, positioned);
-      } catch {
-        console.warn(`chamfer: boolean difference failed for edge '${edgeName}', skipping`);
-        continue;
+        try {
+          const base = (result as any).manifold;
+          const joined = m.Manifold.union([base, prism]);
+          result = new Shape(joined, result.color, result.material);
+        } catch {
+          console.warn(`chamfer: boolean union failed for concave edge '${eref.name}', skipping`);
+        }
       }
     } catch {
       // Edge not found — skip
@@ -368,6 +405,7 @@ export function chamfer(shape: Shape, distance: number, edges?: unknown): Shape 
 
   return result;
 }
+
 
 /**
  * Shell (hollow) a shape. STUB.

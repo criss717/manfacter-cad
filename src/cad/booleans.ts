@@ -42,27 +42,42 @@ function wrapResult(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   manifoldResult: any,
   firstShape: Shape,
+  allShapes?: Shape[],
 ): Shape {
   const { color, material } = getShapeAppearance(firstShape);
 
   if (firstShape instanceof TrackedShape) {
-    // For TrackedShape, we keep face names from the first operand
-    // Note: after boolean ops, some faces may no longer exist geometrically,
-    // but named face access will still work for surviving faces.
-    return new TrackedShape(manifoldResult, (firstShape as TrackedShape).faceNames().reduce(
-      (map, name) => {
-        // Faces from the first operand that survive the boolean.
-        // We preserve them as-is; the manifold will handle the geometry.
-        try {
-          const f = (firstShape as TrackedShape).face(name);
-          map.set(name, f);
-        } catch {
-          // Face removed by boolean — skip
+    // Merge faces and edges from ALL TrackedShape operands
+    const mergedFaces = new Map<string, import('./trackedShape').FaceRef>();
+    const mergedEdges = new Map<string, import('./trackedShape').EdgeRef>();
+
+    const operands = allShapes ?? [firstShape];
+    for (const shape of operands) {
+      if (shape instanceof TrackedShape) {
+        // Merge faces (first operand's faces take priority on name conflicts)
+        for (const name of shape.faceNames()) {
+          if (!mergedFaces.has(name)) {
+            try {
+              mergedFaces.set(name, shape.face(name));
+            } catch {
+              // Face removed by boolean — skip
+            }
+          }
         }
-        return map;
-      },
-      new Map<string, import('./trackedShape').FaceRef>(),
-    ), undefined, color, material);
+        // Merge edges (first operand's edges take priority on name conflicts)
+        for (const name of shape.edgeNames()) {
+          if (!mergedEdges.has(name)) {
+            try {
+              mergedEdges.set(name, shape.edge(name));
+            } catch {
+              // Edge removed by boolean — skip
+            }
+          }
+        }
+      }
+    }
+
+    return new TrackedShape(manifoldResult, mergedFaces, mergedEdges, color, material);
   }
 
   return new Shape(manifoldResult, color, material);
@@ -86,7 +101,7 @@ export function union(...shapes: Shape[]): Shape {
   const m = getManifold();
   const manifolds = shapes.map(getManifoldFromShape);
   const result = m.Manifold.union(manifolds);
-  return wrapResult(result, shapes[0]);
+  return wrapResult(result, shapes[0], shapes);
 }
 
 /**
@@ -105,7 +120,7 @@ export function difference(...shapes: Shape[]): Shape {
   const [base, ...cutters] = shapes;
   const manifolds = cutters.map(getManifoldFromShape);
   const result = getManifoldFromShape(base).subtract(m.Manifold.union(manifolds));
-  return wrapResult(result, base);
+  return wrapResult(result, base, shapes);
 }
 
 /**
@@ -122,5 +137,5 @@ export function intersection(...shapes: Shape[]): Shape {
   const m = getManifold();
   const manifolds = shapes.map(getManifoldFromShape);
   const result = m.Manifold.intersection(manifolds);
-  return wrapResult(result, shapes[0]);
+  return wrapResult(result, shapes[0], shapes);
 }

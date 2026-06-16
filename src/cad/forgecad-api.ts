@@ -6,7 +6,8 @@
  * correctly; the rest are descriptive stubs that point to alternatives.
  */
 import { Shape, type Vec3 } from './shape';
-import { TrackedShape, ShapeGroup, group } from './trackedShape';
+import { TrackedShape, ShapeGroup, group, type EdgeRef } from './trackedShape';
+import type { EdgeQuery } from './types';
 import { box, cylinder, sphere, torus } from './primitives';
 import { union, difference, intersection } from './booleans';
 import { translate, rotate, scale, mirror } from './transforms';
@@ -41,6 +42,8 @@ import {
 
 // Re-export existing functions that are part of the ForgeCAD surface
 export { hull3d, fillet, chamfer, shell, roundedBox };
+export type { EdgeQuery } from './types';
+export type { EdgeRef } from './trackedShape';
 
 // ---------------------------------------------------------------------------
 // Pattern helpers (working implementations)
@@ -362,23 +365,243 @@ export function edgeNames(shape: Shape): string[] {
 // Topology helpers
 // ---------------------------------------------------------------------------
 
-export function edgesOf(_shape: Shape, _faceName: string): never {
-  throw new Error('edgesOf() not implemented.');
+export function edgesOf(shape: Shape, faceName: string): EdgeRef[] {
+  if (!(shape instanceof TrackedShape)) {
+    throw new Error(
+      'edgesOf() requires a TrackedShape. Use box() or cylinder() which return TrackedShape. ' +
+      'Apply edgesOf BEFORE boolean operations, or use selectEdges() for boolean results.'
+    );
+  }
+
+  const faceRef = shape.face(faceName);
+  const fn = faceRef.normal;
+
+  const result: EdgeRef[] = [];
+  for (const edgeName of shape.edgeNames()) {
+    const edgeRef = shape.edge(edgeName);
+    // Check if either face normal matches the target face normal
+    const d0 = Math.abs(edgeRef.faceNormals[0][0] * fn[0] + edgeRef.faceNormals[0][1] * fn[1] + edgeRef.faceNormals[0][2] * fn[2]);
+    const d1 = Math.abs(edgeRef.faceNormals[1][0] * fn[0] + edgeRef.faceNormals[1][1] * fn[1] + edgeRef.faceNormals[1][2] * fn[2]);
+    if (d0 > 0.995 || d1 > 0.995) {
+      result.push(edgeRef);
+    }
+  }
+
+  return result;
 }
-export function edgesBetween(_shape: Shape, _faceA: string, _faceB: string): never {
-  throw new Error('edgesBetween() not implemented.');
+export function edgesBetween(shape: Shape, faceA: string, faceB: string): EdgeRef[] {
+  if (!(shape instanceof TrackedShape)) {
+    throw new Error('edgesBetween() requires a TrackedShape.');
+  }
+
+  const fA = shape.face(faceA);
+  const fB = shape.face(faceB);
+  const nA = fA.normal;
+  const nB = fB.normal;
+
+  const result: EdgeRef[] = [];
+  for (const edgeName of shape.edgeNames()) {
+    const edgeRef = shape.edge(edgeName);
+    const [en0, en1] = edgeRef.faceNormals;
+    // Check if the edge's face normals match nA and nB (in either order)
+    const matchAB = (
+      Math.abs(en0[0]*nA[0] + en0[1]*nA[1] + en0[2]*nA[2]) > 0.995 &&
+      Math.abs(en1[0]*nB[0] + en1[1]*nB[1] + en1[2]*nB[2]) > 0.995
+    );
+    const matchBA = (
+      Math.abs(en0[0]*nB[0] + en0[1]*nB[1] + en0[2]*nB[2]) > 0.995 &&
+      Math.abs(en1[0]*nA[0] + en1[1]*nA[1] + en1[2]*nA[2]) > 0.995
+    );
+    if (matchAB || matchBA) {
+      result.push(edgeRef);
+    }
+  }
+
+  return result;
 }
-export function selectEdges(_shape: Shape, _query: unknown): never {
-  throw new Error('selectEdges() not implemented. Use fillet() on box faces by name instead.');
+export function selectEdges(shape: Shape, query?: EdgeQuery): EdgeRef[] {
+  if (!(shape instanceof TrackedShape)) {
+    throw new Error(
+      'selectEdges() requires a TrackedShape. For boolean results, apply fillet/chamfer BEFORE union/difference ' +
+      'on individual primitives, or use edgesOf() on the individual primitives before combining.'
+    );
+  }
+
+  // Collect all named edges
+  const allEdges: EdgeRef[] = [];
+  for (const name of shape.edgeNames()) {
+    try {
+      allEdges.push(shape.edge(name));
+    } catch { /* skip */ }
+  }
+
+  if (!query) return allEdges;
+
+  // Apply filters
+  return allEdges.filter((edge) => {
+    const dir: Vec3 = [
+      edge.end[0] - edge.start[0],
+      edge.end[1] - edge.start[1],
+      edge.end[2] - edge.start[2],
+    ];
+    const edgeLen = Math.sqrt(dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2]);
+    if (edgeLen < 1e-9) return false;
+    const ndir: Vec3 = [dir[0]/edgeLen, dir[1]/edgeLen, dir[2]/edgeLen];
+
+    // Convex/concave filter
+    if (query.convex !== undefined || query.concave !== undefined) {
+      const dot = edge.faceNormals[0][0] * edge.faceNormals[1][0] +
+                  edge.faceNormals[0][1] * edge.faceNormals[1][1] +
+                  edge.faceNormals[0][2] * edge.faceNormals[1][2];
+      const isConvex = dot <= 0; // normals diverge → convex outside corner
+      if (query.convex === true && !isConvex) return false;
+      if (query.concave === true && isConvex) return false;
+    }
+
+    // Direction: parallel to vector
+    if (query.parallel) {
+      const [px, py, pz] = query.parallel;
+      const plen = Math.sqrt(px*px + py*py + pz*pz);
+      if (plen < 1e-9) return false;
+      const dot = Math.abs(ndir[0]*px/plen + ndir[1]*py/plen + ndir[2]*pz/plen);
+      if (dot < 0.98) return false;
+    }
+
+    // Direction: perpendicular to vector
+    if (query.perpendicular) {
+      const [px, py, pz] = query.perpendicular;
+      const plen = Math.sqrt(px*px + py*py + pz*pz);
+      if (plen < 1e-9) return false;
+      const dot = Math.abs(ndir[0]*px/plen + ndir[1]*py/plen + ndir[2]*pz/plen);
+      if (dot > 0.02) return false;
+    }
+
+    // Z-level: edge midpoint Z
+    if (query.atZ !== undefined) {
+      const midZ = (edge.start[2] + edge.end[2]) / 2;
+      if (Math.abs(midZ - query.atZ) > 0.5) return false;
+    }
+
+    // Length filters
+    if (query.minLength !== undefined && edgeLen < query.minLength) return false;
+    if (query.maxLength !== undefined && edgeLen > query.maxLength) return false;
+
+    // Within: edge midpoint inside bounding region
+    if (query.within) {
+      const mx = (edge.start[0] + edge.end[0]) / 2;
+      const my = (edge.start[1] + edge.end[1]) / 2;
+      const mz = (edge.start[2] + edge.end[2]) / 2;
+      const { min, max } = query.within;
+      if (mx < min[0] || mx > max[0] || my < min[1] || my > max[1] || mz < min[2] || mz > max[2]) return false;
+    }
+
+    return true;
+  });
 }
-export function selectEdge(_shape: Shape, _query: unknown): never {
-  throw new Error('selectEdge() not implemented.');
+export function selectEdge(shape: Shape, query?: EdgeQuery): EdgeRef {
+  const matches = selectEdges(shape, query);
+  if (matches.length === 0) {
+    throw new Error('selectEdge(): no edges match the query. Try selectEdges() to see all available edges.');
+  }
+  // If within region specified, return closest to center
+  if (query?.within) {
+    const center: Vec3 = [
+      (query.within.min[0] + query.within.max[0]) / 2,
+      (query.within.min[1] + query.within.max[1]) / 2,
+      (query.within.min[2] + query.within.max[2]) / 2,
+    ];
+    let best = matches[0];
+    let bestDist = Infinity;
+    for (const e of matches) {
+      const mx = (e.start[0] + e.end[0]) / 2;
+      const my = (e.start[1] + e.end[1]) / 2;
+      const mz = (e.start[2] + e.end[2]) / 2;
+      const d = (mx-center[0])**2 + (my-center[1])**2 + (mz-center[2])**2;
+      if (d < bestDist) { bestDist = d; best = e; }
+    }
+    return best;
+  }
+  return matches[0];
 }
-export function coalesceEdges(_shape: Shape, _edges: unknown): never {
-  throw new Error('coalesceEdges() not implemented.');
+export function coalesceEdges(edges: EdgeRef[]): EdgeRef[] {
+  if (edges.length <= 1) return edges;
+
+  const result: EdgeRef[] = [];
+  const used = new Set<number>();
+
+  for (let i = 0; i < edges.length; i++) {
+    if (used.has(i)) continue;
+    used.add(i);
+
+    let current = { ...edges[i] };
+    const dir: Vec3 = [
+      current.end[0] - current.start[0],
+      current.end[1] - current.start[1],
+      current.end[2] - current.start[2],
+    ];
+    let curLen = Math.sqrt(dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2]);
+    if (curLen < 1e-9) continue;
+    const ndir: Vec3 = [dir[0]/curLen, dir[1]/curLen, dir[2]/curLen];
+
+    // Find collinear edges and extend
+    let extended = true;
+    while (extended) {
+      extended = false;
+      for (let j = 0; j < edges.length; j++) {
+        if (used.has(j)) continue;
+        const other = edges[j];
+        const odir: Vec3 = [
+          other.end[0] - other.start[0],
+          other.end[1] - other.start[1],
+          other.end[2] - other.start[2],
+        ];
+        const olen = Math.sqrt(odir[0]*odir[0] + odir[1]*odir[1] + odir[2]*odir[2]);
+        if (olen < 1e-9) { used.add(j); continue; }
+        const ondir: Vec3 = [odir[0]/olen, odir[1]/olen, odir[2]/olen];
+
+        const dot = Math.abs(ndir[0]*ondir[0] + ndir[1]*ondir[1] + ndir[2]*ondir[2]);
+        if (dot < 0.995) continue;
+
+        // Check adjacency: distance between endpoints
+        const d1 = Math.sqrt(
+          (current.end[0]-other.start[0])**2 + (current.end[1]-other.start[1])**2 + (current.end[2]-other.start[2])**2
+        );
+        const d2 = Math.sqrt(
+          (other.end[0]-current.start[0])**2 + (other.end[1]-current.start[1])**2 + (other.end[2]-current.start[2])**2
+        );
+
+        if (d1 < 0.05) {
+          // other follows current
+          current = {
+            ...current,
+            end: other.end,
+            name: current.name,
+          };
+          used.add(j);
+          extended = true;
+        } else if (d2 < 0.05) {
+          // other precedes current
+          current = {
+            ...current,
+            start: other.start,
+            name: current.name,
+          };
+          used.add(j);
+          extended = true;
+        }
+      }
+    }
+
+    result.push(current);
+  }
+
+  return result;
 }
-export function faceHistory(_shape: Shape): never {
-  throw new Error('faceHistory() not implemented.');
+export function faceHistory(shape: Shape): string[] {
+  if (shape instanceof TrackedShape) {
+    return shape.faceNames();
+  }
+  return [];
 }
 
 // ---------------------------------------------------------------------------

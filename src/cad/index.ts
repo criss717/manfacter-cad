@@ -24,6 +24,7 @@ export type {
   ShapeMaterialProps,
   SnapshotAngle,
   ExportResult,
+  EdgeQuery,
 } from './types';
 
 // Primitives

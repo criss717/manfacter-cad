@@ -71,6 +71,14 @@ const PATTERN_HINTS: readonly string[] = [
   'pattern', 'array', 'patron', 'patrón', 'matrix', 'matriz',
 ];
 
+/** Keywords that force MODERATE tier so the AI reads references before generating. */
+const REFERENCE_REQUIRED_KEYWORDS: ReadonlySet<string> = new Set([
+  'fillet', 'fillets', 'redondeo', 'redondeos', 'redondear',
+  'chamfer', 'chamfers', 'chaflan', 'chaflán', 'chaflanes', 'bisel', 'biselar',
+  'shell', 'hollow', 'hueco', 'ahuecar',
+  'hull', 'envolvente',
+]);
+
 const TOKEN_RE = /[\w\-]+/gu;
 const NUMBER_NEAR_FEATURE_RE =
   /\b(\d{1,3})\b\s+(?:[\wáéíóúñ]+\s+){0,3}?([\wáéíóúñ]+)/giu;
@@ -117,6 +125,12 @@ export function classifyTier(text: string): Tier {
   if (estLines > 60) return 'COMPLEX';
   if (text.length > 400 && !hasSimple) return 'COMPLEX';
   if (distinctFeatures >= 12) return 'COMPLEX';
+
+  // Force MODERATE for operations that need reference docs (fillet, chamfer, shell, hull)
+  const needsReference = [...REFERENCE_REQUIRED_KEYWORDS].some((kw) => tokenSet.has(kw));
+  if (needsReference && !hasComplex) {
+    return 'MODERATE';
+  }
 
   if (hasSimple && distinctFeatures <= 1 && !hasPattern && estLines < 50) {
     return 'SIMPLE';
@@ -258,6 +272,8 @@ CUANDO COMPLEJO: 1. readReference 2. Estudia patrones 3. Genera código 4. runCa
 REGLAS CRÍTICAS:
 - Si runCadCode falla → lee el error + hint → corrige el código → llama runCadCode de nuevo INMEDIATAMENTE.
 - NO envíes texto entre intentos. Solo cuando la pieza se genera con éxito o agotas los 10 intentos.
+- Si el MISMO error aparece 3 veces seguidas → CAMBIA DE ENFOQUE completamente. No insistas.
+- Si fillet() o chamfer() falla después de union/difference → NO funcionará. Aplica fillet/chamfer ANTES en las primitivas, luego haz la operación booleana.
 - Si el error es desconocido → readReference → corrige → reintenta.
 - Después de 10 fallos consecutivos → PARA INMEDIATAMENTE.
   - Si falta información: di qué necesitas.
@@ -301,12 +317,29 @@ Caras nombradas (TrackedShape desde box/cylinder):
   Caras de box: top, bottom, front, back, left, right
   Caras de cylinder: top, bottom, side
 
+Aristas nombradas de box (usa con edgesOf/selectEdges):
+  Horizontales superiores: top_front, top_back, top_right, top_left
+  Horizontales inferiores: bottom_front, bottom_back, bottom_right, bottom_left
+  Verticales: front_right, front_left, back_right, back_left
+Aristas de cylinder: top_rim, bottom_rim
+
+FILTRO DE ARISTAS — CRÍTICO para fillet/chamfer:
+  - NUNCA selecciones TODAS las aristas sin filtrar. Las aristas de espesor (4mm) son demasiado cortas para un radio de 4mm.
+  - Usa selectEdges() con minLength para ignorar aristas cortas:
+    selectEdges(shape, { minLength: radio * 3 })
+  - O usa edgesOf('top') para seleccionar solo las aristas de una cara específica.
+  - PATRÓN CORRECTO — fillet solo en aristas largas:
+    const aristasLargas = selectEdges(miCaja, { minLength: radio * 2 });
+    const cajaRedondeada = fillet(miCaja, radio, aristasLargas);
+
 Operaciones adicionales:
   group(s1, s2, ...) → ShapeGroup         — agrupa formas
   hull3d(s1, s2, ...) → Shape             — envolvente convexa
   roundedBox(x, y, z, radius) → Shape    — caja con TODOS los bordes redondeados (USA ESTE en vez de fillet)
-  fillet(shape, radius, edgeName?)    — redondea aristas individuales (box/cylinder)
-  chamfer(shape, distance, edgeName?) — bisela aristas (box/cylinder)
+  fillet(shape, radius, edges?)    — redondea aristas. edges: nombre, array, o EdgeRef[] de edgesOf()/selectEdges()
+  chamfer(shape, distance, edges?) — bisela aristas. Misma API que fillet.
+  edgesOf(shape, faceName) → EdgeRef[] — aristas que bordean una cara
+  selectEdges(shape, query?) → EdgeRef[] — filtros: { convex, concave, parallel, atZ, minLength }
   linearPattern(shape, count, spacing) → Shape — patrón lineal
   circularPattern(shape, count, angle) → Shape — patrón circular
   gear(module, teeth, faceWidth) → Shape  — engranaje recto con perfil involuta
@@ -398,7 +431,8 @@ export function buildTierDirective(tier: Tier): string {
   }
   return (
     '[CLASSIFIER NOTE — TIER: MODERATE]\n' +
-    '- Reference policy: NO references needed (API cheatsheet in system prompt).\n' +
+    '- Reference policy: readReference("forgecad/core.md") if using fillet/chamfer/shell/hull.\n' +
+    '- For edge features (fillet, chamfer): use edgesOf() and selectEdges() from the reference.\n' +
     '- Snapshot: optional unless visual ambiguity is detected.\n'
   );
 }

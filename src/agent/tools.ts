@@ -41,7 +41,7 @@ export let _currentSessionId = '';
 export let _currentTier = 'MODERATE';
 
 /** Max CAD generation attempts per session. */
-const MAX_CAD_ATTEMPTS = 20;
+const MAX_CAD_ATTEMPTS = 10;
 
 // ---------------------------------------------------------------------------
 // Context setters (called by dispatch.ts)
@@ -175,7 +175,7 @@ async function _runCadCode(code: string): Promise<string> {
       return JSON.stringify({
         ok: false,
         error: 'MAX_ATTEMPTS_EXCEEDED',
-        hint: 'Has excedido los 10 intentos máximos permitidos. Informa al usuario.',
+        hint: 'Has excedido los 10 intentos máximos. Informa al usuario que simplifique la descripción o divida la pieza en partes más simples.',
         modelId: 'limit_exceeded',
         tier,
       } satisfies RunCadCodeResult);
@@ -648,6 +648,15 @@ function _classifyError(error: string): string {
   }
   if (e.includes('shape') && e.includes('invalid')) {
     return 'ERROR: Shape inválido. Asegúrate de que box(), cylinder(), etc. devuelvan un Shape antes de operaciones booleanas.';
+  }
+  if (e.includes('fillet') && (e.includes('before union') || e.includes('no named edges'))) {
+    return 'ERROR: fillet() solo funciona en box()/cylinder() ANTES de union/difference. Aplica fillet a las primitivas individuales y luego haz la operación booleana. Ej: const c = fillet(box(50,20,4), 4);';
+  }
+  if (e.includes('chamfer') && e.includes('trackedshape')) {
+    return 'ERROR: chamfer() solo funciona en box()/cylinder() ANTES de operaciones booleanas. Aplica chamfer a las primitivas individuales.';
+  }
+  if (e.includes('fillet') && e.includes('radius') && e.includes('too large')) {
+    return 'ERROR: El radio del redondeo es demasiado grande para la arista. Reduce el radio o usa max_fillet() primero para verificar el máximo permitido.';
   }
   return `ERROR: ${error}. Consulta las referencias para la API correcta y corrige.`;
 }
