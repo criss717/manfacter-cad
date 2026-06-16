@@ -176,6 +176,54 @@ def classify_cad_error(error: str) -> str:
 
     if _is_epic_c_enabled():
         if (
+            "shapelist" in e
+            and "wrapped" in e
+            and ("fillet" in e or "chamfer" in e)
+        ):
+            return (
+                "ERROR (ShapeList / GOTCHAS): estas pasando un ShapeList a "
+                ".fillet() en vez de una lista Python. USA list() para convertir: "
+                "`edges = list(part.edges().filter_by(Axis.X)); "
+                "part.fillet(r, edges)`. "
+                "Consulta la seccion ShapeList del bloque GOTCHAS."
+            )
+
+        if "show_object" in e or ("name 'show" in e and "is not defined" in e):
+            return (
+                "ERROR (show_object / GOTCHAS): show_object() no existe en "
+                "build123d estandar. Elimina esa linea. Para inspeccion visual "
+                "usa make_snapshot(step_path). "
+                "Consulta la seccion NUNCA uses show_object del bloque GOTCHAS."
+            )
+
+        if "centerarc" in e and "end_angle" in e:
+            return (
+                "ERROR (CenterArc / GOTCHAS): CenterArc no acepta 'end_angle'. "
+                "Firma correcta: CenterArc(center, radius, start_angle, arc_size). "
+                "Ej: CenterArc((0,0), 10, 0, 180) = semicirculo. "
+                "Angulos en GRADOS. "
+                "Consulta la seccion CenterArc del bloque GOTCHAS."
+            )
+
+        if "revolve" in e and ("angle" in e or "unexpected keyword" in e):
+            return (
+                "ERROR (revolve / GOTCHAS): revolve() NO acepta 'angle'. "
+                "La revolucion siempre es 360 grados. "
+                "Firma correcta: revolve(axis=Axis.X) — 'axis=' es KEYWORD. "
+                "SOLO funciona con Face (perfil 2D): "
+                "BuildSketch → make_face() → revolve(axis=Axis.X). "
+                "Consulta la seccion revolve del bloque GOTCHAS."
+            )
+
+        if "revolve" in e and "doesn't accept axis" in e:
+            return (
+                "ERROR (revolve / GOTCHAS): pasaste Axis.X como posicional. "
+                "Usa KEYWORD: revolve(axis=Axis.X). "
+                "SOLO con Face (BuildSketch + make_face), NO con solidos. "
+                "Consulta la seccion revolve del bloque GOTCHAS."
+            )
+
+        if (
             "does not intersect" in e
             or "does not overlap" in e
             or "no intersection" in e

@@ -88,7 +88,7 @@ MODEL_CONFIGS: dict[str, dict] = {
     "deepseek-v4-pro-go": {"model": "deepseek-v4-pro", "api": "chat",     "base_url": ZEN_GO_BASE},
     "mimo-v2.5-pro-go":   {"model": "mimo-v2.5-pro",   "api": "chat",     "base_url": ZEN_GO_BASE},
     "kimi-go":            {"model": "kimi-k2.6",         "api": "chat",     "base_url": ZEN_GO_BASE},
-    "kimi-go-2.7":        {"model": "kimi-k2.7-code",          "api": "chat",     "base_url": ZEN_GO_BASE},
+    "kimi-go-2.7":        {"model": "kimi-k2.7-code",          "api": "chat",     "base_url": ZEN_GO_BASE, "temperature": 1.0},
     "glm-go":             {"model": "glm-5.1",           "api": "chat",     "base_url": ZEN_GO_BASE},
     "qwen3.7-max-go":     {"model": "qwen3.7-max",       "api": "messages", "base_url": ZEN_GO_BASE},
     "minimax-m3-go":      {"model": "minimax-m3",        "api": "messages", "base_url": ZEN_GO_BASE},
@@ -644,7 +644,7 @@ def _restore_code_in_result(result: str) -> str:
 
 
 async def _run_chat(
-    websocket, messages: list, model: str, api_key: str, base_url: str
+    websocket, messages: list, model: str, api_key: str, base_url: str, temperature: float = 0.2
 ) -> None:
     """OpenAI-compatible chat/completions WITH streaming (minimax, glm, kimi, deepseek, GO)."""
     client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=300.0, max_retries=2)
@@ -658,7 +658,7 @@ async def _run_chat(
                     messages=messages,
                     tools=TOOLS,
                     tool_choice="auto",
-                    temperature=0.2,
+                    temperature=temperature,
                     stream=True,
                 )
                 break
@@ -1382,12 +1382,13 @@ async def process_user_message(
     _last_user_request[session_id] = user_text
 
     base_url = config.get("base_url", ZEN_BASE)
+    temperature = float(config.get("temperature", 0.2))
     if api == "messages":
         await _run_messages(websocket, messages, model, api_key, base_url)
     elif api == "gemini":
         await _run_gemini_zen(websocket, messages, model, api_key)
     else:
-        await _run_chat(websocket, messages, model, api_key, base_url)
+        await _run_chat(websocket, messages, model, api_key, base_url, temperature)
 
     print(f"[OPENAI] Completed, sending done")
     try:

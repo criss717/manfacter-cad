@@ -233,6 +233,30 @@ NUNCA invertir el orden ni pasar un solo edge sin envolverlo en `[...]`.
 - Pared mínima: `shell`/`hollow` debe dejar ≥ 1.0 mm de espesor.
 - Clearance: caras y agujeros que ensamblan requieren +0.2 mm de holgura.
 - Espesores < 0.8 mm no imprimen de forma fiable; reescala si hace falta.
+
+### ShapeList → list() antes de .fillet() (CRITICAL)
+- `.edges().filter_by(Axis.X)` devuelve `ShapeList`, NO una lista Python.
+- Antes de pasarlo a `.fillet()` DEBES convertirlo: `list(part.edges().filter_by(...))`
+- ERROR: `AttributeError: 'ShapeList' object has no attribute 'wrapped'`
+- FIX: `edges = list(shaft.edges().filter_by(Axis.X)); shaft.fillet(r, edges)`
+
+### NUNCA uses show_object() / show()
+- `show_object()` y `show()` son de CQ-editor. NO existen en build123d estándar.
+- Para inspección visual usa `make_snapshot(step_path)` o `make_snapshots(step_path)`.
+
+### CenterArc y operaciones de sketch
+- `CenterArc(center, radius, start_angle, arc_size)` — NO tiene `end_angle`.
+- Ángulos en GRADOS. `arc_size` es el ángulo del arco (0-360).
+- `CenterArc((0,0), 10, 0, 180)` = semicírculo de radio 10.
+- ERROR: `TypeError: CenterArc.__init__() got an unexpected keyword argument 'end_angle'`
+
+### revolve() — solo con perfiles 2D (Face)
+- `revolve()` SOLO acepta Face (perfil 2D cerrado), NO sólidos.
+- Flujo: `BuildSketch → make_face() → revolve(axis=Axis.X)`
+- El argumento `axis=` es KEYWORD: `revolve(axis=Axis.X)`
+- NO existe `angle=` en `revolve()` — la revolución siempre es 360°.
+- ERROR: `RuntimeError: revolve doesn't accept Axis`
+- ERROR: `TypeError: revolve() got an unexpected keyword argument 'angle'`
 """.format(version=GOTCHAS_VERSION)
 
 
@@ -278,6 +302,32 @@ NEVER ask for dimensions if the user gave ANY measurement.
 ## WORKFLOW — CLASSIFY FIRST (MANDATORY)
 
 Before ANY code generation, classify the request as SIMPLE or COMPLEX:
+
+## METHODOLOGY — Sketch-First Design (SolidWorks-like)
+
+build123d is Sketch-driven, just like SolidWorks. Draw 2D → Extrude/Revolve into 3D.
+
+GOLDEN RULE (MODERATE & COMPLEX):
+  IF your code does NOT contain `with BuildSketch():` → your approach is WRONG.
+  ALWAYS prefer sketching on faces/planes over positioning solids with `.moved()`.
+
+### When BuildSketch is REQUIRED:
+  - ANY part with 3+ distinct features (holes, bosses, slots, pockets)
+  - Stepped shafts, flanges, brackets, enclosures
+  - Parts with features on specific faces
+  - ALL revolved parts (use BuildSketch + make_face + revolve)
+
+### Sketch-first workflow:
+  1. Select plane: Plane.XY (top), Plane.XZ (front), Plane.YZ (side)
+     OR select face: part.faces().sort_by(Axis.Z)[-1]
+  2. with BuildSketch(plane):
+       Rectangle/Polygon/Circle/Triangle — draw in 2D
+  3. Extrude(amount, mode=Mode.ADD) or Revolve(axis=Axis.X)
+  4. For holes/cuts: BuildSketch on target face → draw hole profiles → Extrude(mode=Mode.SUBTRACT)
+
+### When direct primitives are OK (SIMPLE only):
+  - Single Box or Cylinder with ≤ 2 features
+  - The part naturally fits at the origin
 
 ### SIMPLE PARTS → Generate directly. NO references needed.
 - Box, cube, block, plate, bracket, flange, washer, spacer, gasket, shim
@@ -460,6 +510,7 @@ def build_tier_directive(tier: Tier) -> str:
         return (
             "[CLASSIFIER NOTE — TIER: SIMPLE]\n"
             "- Reference policy: NO references needed. Use the API cheatsheet from your system prompt.\n"
+            "- Methodology: direct primitives only (Box, Cylinder, Sphere). NO BuildSketch needed.\n"
             "- Snapshot: not required.\n"
             "- Mesh deflection: coarse (0.1 mm linear, 0.8 angular).\n"
         )
@@ -467,6 +518,10 @@ def build_tier_directive(tier: Tier) -> str:
         return (
             "[CLASSIFIER NOTE — TIER: COMPLEX]\n"
             "- Reference policy: MANDATORY — call read_reference(\"build123d-modeling.md\") FIRST.\n"
+            "- Methodology: MANDATORY BuildSketch for EVERY feature.\n"
+            "  Each face/plane = one sketch. Draw 2D → Extrude/Revolve.\n"
+            "  ZERO tolerance for manual 3D positioning with .moved().\n"
+            "  Pattern: select face → BuildSketch(face) → draw 2D → extrude/revolve.\n"
             "- MANDATORY_SNAPSHOT: after a successful inspect_geometry you MUST call "
             "make_snapshot(step_path) before reporting back to the user.\n"
             "- Mesh deflection: fine (0.02 mm linear, 0.3 angular).\n"
@@ -474,6 +529,10 @@ def build_tier_directive(tier: Tier) -> str:
     return (
         "[CLASSIFIER NOTE — TIER: MODERATE]\n"
         "- Reference policy: NO references needed (API cheatsheet in system prompt).\n"
+        "- Methodology: PREFER BuildSketch + Extrude/Revolve.\n"
+        "  Draw profiles in 2D first, then extrude or revolve.\n"
+        "  Avoid manual 3D positioning (.moved, Location) unless necessary.\n"
+        "  For stepped shafts: BuildSketch profile → Revolve around axis.\n"
         "- Snapshot: optional unless visual ambiguity is detected.\n"
         "- Mesh deflection: default (0.05 mm linear, 0.5 angular).\n"
     )
