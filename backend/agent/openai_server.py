@@ -40,6 +40,10 @@ if _env_file.exists():
                 if key and value and key not in os.environ:
                     os.environ[key] = value
 
+# Google API key (supports both env var names)
+if not os.environ.get("GOOGLE_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "")
+
 import websockets
 from websockets.asyncio.server import serve
 from openai import AsyncOpenAI
@@ -98,65 +102,67 @@ DEFAULT_PROVIDER = "glm"
 
 # ── Image analysis pipeline ─────────────────────────────────────────────────────
 # Models that natively process images for CAD generation
-MODELS_WITH_VISION: set[str] = {"gemini-pro", "minimax-m3-go"}
+MODELS_WITH_VISION: set[str] = {
+    "gemini-pro", "minimax-m3-go", "kimi-go-2.7",
+}
 
-# Model used to analyze images BEFORE passing to a non-vision CAD model
+# ── Google Gemini direct (REST API, no Zen) ────────────────────────────────────
+GEMINI_VISION_MODEL = "gemini-2.5-pro"  # best balance: fast, good vision, cheap
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+
+# ── Image analysis fallback chain (tried in order) ─────────────────────────────
+IMAGE_ANALYZER_CHAIN: list[str] = ["kimi-go-2.7", "kimi-go"]
+
+# Legacy: primary analyzer kept for the chat fallback
 IMAGE_ANALYZER = "kimi-go"
 
-# Second analyzer for dual-analysis consensus (Anthropic /messages format)
+# Second analyzer for dual-analysis consensus (Anthropic /messages format) — DEPRECATED, kept for fallback
 IMAGE_ANALYZER_B = "minimax-m3-go"
 
-IMAGE_ANALYSIS_PROMPT = """Eres un ingeniero mecánico experto analizando una fotografía de una pieza fabricada.
+IMAGE_ANALYSIS_PROMPT = """Eres un ingeniero mecánico analizando una imagen para generación CAD con build123d.
 
-Describe la pieza con MÁXIMO DETALLE siguiendo esta estructura EXACTA:
-
-## MATERIAL
-- Material aparente (latón, acero, aluminio, plástico, etc.)
-- Acabado superficial (mecanizado, fundido, pulido, anodizado)
-- Color y textura
+Describe SOLO la geometría — esto se usará para generar código CAD 3D.
 
 ## FORMA GENERAL
-- Forma de la pieza (cilíndrica, rectangular, en L, irregular, etc.)
-- ¿Es una sola pieza o varias?
+- Tipo de pieza (eje, brida, soporte, carcasa, etc.)
+- ¿Es una pieza de revolución, prismática, o combinación?
+- ¿Es una sola pieza o ensamblaje?
 
 ## DIMENSIONES (en MILÍMETROS)
-- Ancho, alto, profundidad totales ESTIMADOS
-- Espesor de paredes, placas, bases
-- Diámetro de elementos circulares
-- Menciona cómo estimas (relativo a objetos en la foto o proporciones)
+- Dimensiones totales: ancho × alto × profundidad
+- Diámetros de elementos cilíndricos
+- Espesores de pared, placa, base
+- Si estimás, indica "estimado ~X mm"
 
-## CARACTERÍSTICAS (enumera CADA una)
-Para cada característica visible describe:
-- Tipo: agujero, ranura, saliente, refuerzo, filete, chaflán, rosca, canal, chavetero
-- Posición relativa (centro, borde, a X mm del borde)
-- Dimensiones: diámetro, profundidad, largo, ancho
-- Patrón: ¿hay varios? ¿en círculo, línea, a qué ángulos?
-- Avellanado: ¿el agujero es plano o cónico en la entrada?
+## CARACTERÍSTICAS GEOMÉTRICAS (enumera CADA una)
+Para cada feature visible:
+- Tipo: agujero (pasante/ciego), ranura, saliente/boss, nervio, cavidad, chavetero
+- Forma: circular, rectangular, irregular
+- Posición relativa: centrado, a X mm del borde, sobre cara superior/inferior/lateral
+- Dimensiones exactas en mm: diámetro × profundidad, largo × ancho × profundidad
+- Cantidad y patrón: ¿cuántos? ¿en línea, círculo, matriz? ¿a qué separación?
 
-## ROSCAS
-- ¿Hay agujeros o ejes roscados?
-- Tipo de rosca si es visible (fina/gruesa, métrica)
-- Diámetro aproximado
+## PERFIL DE REVOLUCIÓN (si aplica)
+- Si es una pieza torneada: describí los tramos en orden (de izquierda a derecha)
+- Diámetro y longitud de cada tramo
+- Transiciones entre tramos: ¿escalón recto, chaflán, filete/radio?
+
+## AGUJEROS Y ROSCAS
+- ¿Pasantes o ciegos? ¿Profundidad?
+- ¿Avellanado o avellanado plano? ¿Ángulo del avellanado (90°)?
+- ¿Roscados? ¿Métrica (M8, M10)? ¿Paso fino o grueso?
 
 ## BORDES Y ESQUINAS
-- ¿Hay filetes (redondeos) o chaflanes (biselados)?
-- Tamaño aproximado
+- Filetes (redondeos): ¿en qué aristas? ¿radio en mm?
+- Chaflanes (biseles): ¿en qué aristas? ¿distancia × ángulo? (ej: 2×45°)
 
-## MÉTODO DE FABRICACIÓN
-- ¿Cómo se fabricó? (CNC, torno, fundición, impresión 3D, estampado)
-- ¿Marcas de herramienta visibles?
-
-## DIMENSIONES CRÍTICAS A PREGUNTAR
-Si NO puedes determinar una dimensión crítica de la foto, indícalo brevemente.
-
-REGLAS IMPORTANTES:
-1. Usa MILÍMETROS para TODAS las medidas
-2. Sé preciso pero indica cuando estás estimando
-3. Describe lo que VES, no inventes características
-4. Si algo no está claro, dilo explícitamente
-5. Céntrate en la GEOMETRÍA — esta descripción se usará para generar CAD
-6. Si el usuario ya dio medidas en su mensaje, ÚSALAS como referencia
-7. NO generes código — SOLO describe la pieza
+## REGLAS
+1. SOLO geometría — no describas material, color, acabado, ni método de fabricación
+2. MILÍMETROS para todas las medidas
+3. Sé preciso pero marcá estimaciones con "~"
+4. NO inventes features que no ves
+5. Si el usuario dio medidas, USALAS
+6. NO generes código — solo describí geometría
 """
 TOOLS = [
     {
@@ -627,6 +633,156 @@ async def _run_gemini_zen(
                         })
 
 
+async def _run_gemini_direct(
+    websocket, messages: list, model: str, api_key: str
+) -> None:
+    """Google AI SDK :generateContent via direct REST API (Google API key)."""
+    import httpx
+
+    endpoint = f"{GEMINI_BASE_URL}/models/{model}:generateContent?key={api_key}"
+
+    # Convert tools to Google format (uppercase TYPE)
+    google_tools: list[dict] = []
+    if TOOLS:
+        declarations = []
+        for t in TOOLS:
+            fn = t["function"]
+            params = dict(fn.get("parameters", {"type": "object", "properties": {}}))
+            if isinstance(params.get("type"), str):
+                params["type"] = params["type"].upper()
+            declarations.append({
+                "name": fn["name"],
+                "description": fn.get("description", ""),
+                "parameters": params,
+            })
+        google_tools = [{"functionDeclarations": declarations}]
+
+    for _step in range(20):
+        system, contents = _to_gemini_contents(messages)
+
+        payload: dict = {"contents": contents}
+        if system:
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+        if google_tools:
+            payload["tools"] = google_tools
+
+        response_data: dict | None = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    resp = await client.post(
+                        endpoint,
+                        headers={"Content-Type": "application/json"},
+                        json=payload,
+                    )
+                    resp.raise_for_status()
+                    response_data = resp.json()
+                break
+            except Exception as e:
+                err = str(e)
+                print(f"[OPENAI] Gemini Direct error (attempt {attempt + 1}/3): {err[:120]}")
+                if attempt < 2 and any(k in err.lower() for k in ("connection", "timeout")):
+                    await asyncio.sleep(2 ** (attempt + 1))
+                    continue
+                await websocket.send(json.dumps({"type": "error", "error": err[:300]}))
+                return
+
+        if response_data is None:
+            return
+
+        candidates = response_data.get("candidates", [])
+        if not candidates:
+            await websocket.send(json.dumps({"type": "error", "error": "No candidates in Gemini response"}))
+            return
+
+        candidate = candidates[0]
+        finish = candidate.get("finishReason", "STOP")
+        content = candidate.get("content", {})
+        parts: list[dict] = content.get("parts", [])
+
+        text_parts = [p for p in parts if "text" in p]
+        fn_call_parts = [p for p in parts if "functionCall" in p]
+
+        print(f"[OPENAI] Gemini Direct finish={finish} text={len(text_parts)} fn_calls={len(fn_call_parts)}")
+
+        assistant_msg: dict = {"role": "assistant", "content": None}
+
+        if text_parts:
+            text = " ".join(p["text"] for p in text_parts)
+            assistant_msg["content"] = text
+            if finish != "TOOL_CALL":
+                await websocket.send(json.dumps({"type": "agent_event", "text": text}))
+            print(f"[OPENAI] TEXT: {text[:100]}...")
+
+        if fn_call_parts:
+            tool_calls = []
+            for i, p in enumerate(fn_call_parts):
+                fc = p["functionCall"]
+                tc_id = f"call_{_step}_{i}"
+                tool_calls.append({
+                    "id": tc_id,
+                    "type": "function",
+                    "function": {
+                        "name": fc["name"],
+                        "arguments": json.dumps(fc.get("args", {})),
+                    },
+                })
+            assistant_msg["tool_calls"] = tool_calls
+
+        messages.append(assistant_msg)
+
+        if finish != "TOOL_CALL" or not fn_call_parts:
+            break
+
+        for p in fn_call_parts:
+            fc = p["functionCall"]
+            name = fc["name"]
+            args = fc.get("args", {})
+
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "tool_call": {"name": name, "args": args},
+            }))
+            print(f"[OPENAI] TOOL: {name}")
+
+            try:
+                fn = TOOL_MAP.get(name)
+                result = str(fn(args)) if fn else json.dumps({"error": f"Unknown tool: {name}"})
+                if name == "run_cad_code":
+                    result = _restore_code_in_result(result)
+                print(f"[OPENAI] RESULT: {name} ok ({len(result)} chars)")
+            except Exception as e:
+                result = json.dumps({"error": str(e)})
+                print(f"[OPENAI] RESULT: {name} FAIL: {e}")
+
+            await websocket.send(json.dumps({
+                "type": "agent_event",
+                "tool_result": {
+                    "name": name,
+                    "response": result if name == "run_cad_code" else result[:1000],
+                },
+            }))
+
+            fn_tc_id = f"call_{_step}_{fn_call_parts.index(p)}"
+            messages.append({
+                "role": "tool",
+                "tool_call_id": fn_tc_id,
+                "content": result,
+            })
+
+            # ── Auto-inspect after successful CAD generation ──────────
+            if name == "run_cad_code":
+                session_id = _current_session_id.get()
+                user_req = _last_user_request.get(session_id, "")
+                if user_req:
+                    inspection = await _auto_inspect_cad(websocket, result, user_req, api_key)
+                    if inspection:
+                        messages.append({
+                            "role": "user",
+                            "content": inspection,
+                        })
+
+
 # ── API handlers ───────────────────────────────────────────────────────────────
 
 def _restore_code_in_result(result: str) -> str:
@@ -942,14 +1098,14 @@ async def _analyze_image(image_data: str, user_text: str) -> str | None:
                 print(f"[OPENAI] IMAGE ANALYSIS FAILED: HTTP {resp.status_code} — {body}")
                 return None
             data = resp.json()
+        description = data["choices"][0]["message"]["content"]
+        print(f"[OPENAI] IMAGE ANALYSIS: {description[:120] if description else '(empty)'}...")
     except Exception as e:
         import traceback
         print(f"[OPENAI] IMAGE ANALYSIS FAILED: {type(e).__name__}: {e}")
         traceback.print_exc()
         return None
 
-    description = data["choices"][0]["message"]["content"]
-    print(f"[OPENAI] IMAGE ANALYSIS: {description[:120]}...")
     return description
 
 
@@ -999,34 +1155,274 @@ async def _analyze_image_anthropic(image_data: str, user_text: str) -> str | Non
                 print(f"[OPENAI] IMAGE ANALYSIS B FAILED: HTTP {resp.status_code} — {body}")
                 return None
             data = resp.json()
+        # Anthropic response format
+        content_blocks = data.get("content", [])
+        text_blocks = [b["text"] for b in content_blocks if b.get("type") == "text"]
+        description = " ".join(text_blocks) if text_blocks else ""
     except Exception as e:
         import traceback
         print(f"[OPENAI] IMAGE ANALYSIS B FAILED: {type(e).__name__}: {e}")
         traceback.print_exc()
         return None
 
-    # Anthropic response format
-    content_blocks = data.get("content", [])
-    text_blocks = [b["text"] for b in content_blocks if b.get("type") == "text"]
-    description = " ".join(text_blocks) if text_blocks else ""
     print(f"[OPENAI] IMAGE ANALYSIS B: {description[:120]}...")
     return description or None
 
 
+# ── Google Gemini direct (REST API) ────────────────────────────────────────────
+
+async def _analyze_image_gemini(image_data: str, user_text: str, api_key: str) -> str | None:
+    """Analyze image with Google Gemini REST API (direct, no Zen)."""
+    import httpx
+    import base64
+
+    media_type, b64 = _parse_image_data_url(image_data)
+    endpoint = f"{GEMINI_BASE_URL}/models/{GEMINI_VISION_MODEL}:generateContent?key={api_key}"
+
+    payload = {
+        "systemInstruction": {
+            "parts": [{"text": IMAGE_ANALYSIS_PROMPT}],
+        },
+        "contents": [{
+            "parts": [
+                {"text": f"Analiza esta foto de pieza mecánica para generación CAD.\n\nPetición del usuario: {user_text}"},
+                {"inlineData": {"mimeType": media_type, "data": b64}},
+            ],
+        }],
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                endpoint,
+                headers={"Content-Type": "application/json"},
+                json=payload,
+            )
+            if resp.status_code >= 400:
+                body = resp.text[:300]
+                print(f"[OPENAI] GEMINI IMAGE ANALYSIS FAILED: HTTP {resp.status_code} — {body}")
+                return None
+            data = resp.json()
+
+        candidates = data.get("candidates", [])
+        if not candidates:
+            print(f"[OPENAI] GEMINI IMAGE: no candidates in response")
+            return None
+
+        parts = candidates[0].get("content", {}).get("parts", [])
+        text = " ".join(p.get("text", "") for p in parts if "text" in p)
+        if not text:
+            print(f"[OPENAI] GEMINI IMAGE: empty text response")
+            return None
+
+        print(f"[OPENAI] GEMINI IMAGE: {text[:120]}...")
+        return text
+    except Exception as e:
+        print(f"[OPENAI] GEMINI IMAGE FAILED: {type(e).__name__}: {e}")
+        return None
+
+
+async def _analyze_cad_snapshots_gemini(
+    png_paths: list[Path],
+    cad_facts: str,
+    user_request: str,
+    api_key: str,
+) -> str | None:
+    """Inspect CAD snapshots with Google Gemini REST API."""
+    import httpx
+    import base64
+
+    endpoint = f"{GEMINI_BASE_URL}/models/{GEMINI_VISION_MODEL}:generateContent?key={api_key}"
+
+    view_names = {
+        "front": "frontal", "back": "posterior", "left": "izquierda",
+        "right": "derecha", "bottom": "inferior",
+    }
+    parts: list[dict] = []
+    for png in png_paths:
+        b64 = base64.b64encode(png.read_bytes()).decode()
+        stem = png.stem
+        view_key = stem.replace("view_", "")
+        label = view_names.get(view_key, view_key)
+        parts.append({"text": f"\n--- Vista {label.upper()} ---"})
+        parts.append({"inlineData": {"mimeType": "image/png", "data": b64}})
+
+    payload = {
+        "systemInstruction": {
+            "parts": [{"text": CAD_INSPECTION_PROMPT}],
+        },
+        "contents": [{
+            "parts": [
+                {"text": f"Inspecciona esta pieza CAD.\n\nDatos geométricos: {cad_facts}\n\nPetición original: {user_request}"},
+                *parts,
+            ],
+        }],
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                endpoint,
+                headers={"Content-Type": "application/json"},
+                json=payload,
+            )
+            if resp.status_code >= 400:
+                body = resp.text[:300]
+                print(f"[OPENAI] GEMINI CAD SNAPSHOT FAILED: HTTP {resp.status_code} — {body}")
+                return None
+            data = resp.json()
+
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return None
+
+        parts_out = candidates[0].get("content", {}).get("parts", [])
+        text = " ".join(p.get("text", "") for p in parts_out if "text" in p)
+        if not text:
+            return None
+
+        print(f"[OPENAI] GEMINI CAD SNAPSHOT: {text[:120]}...")
+        return text
+    except Exception as e:
+        print(f"[OPENAI] GEMINI CAD SNAPSHOT FAILED: {type(e).__name__}: {e}")
+        return None
+
+
+# ── Fallback chain helpers ──────────────────────────────────────────────────────
+
+async def _analyze_image_with_fallback(image_data: str, user_text: str) -> str | None:
+    """Analyze user image: Gemini → kimi-go-2.7 → kimi-go."""
+    google_key = os.environ.get("GOOGLE_API_KEY", "")
+
+    # 1. Gemini (Google direct)
+    if google_key:
+        result = await _analyze_image_gemini(image_data, user_text, google_key)
+        if result:
+            return result
+        print("[OPENAI] IMAGE FALLBACK: Gemini failed, trying kimi-go-2.7...")
+
+    # 2. kimi-go-2.7 (kimi-k2.7-code)
+    result = await _analyze_image_chat_fallback(image_data, user_text, "kimi-go-2.7")
+    if result:
+        return result
+
+    # 3. kimi-go (kimi-k2.6)
+    print("[OPENAI] IMAGE FALLBACK: kimi-go-2.7 failed, trying kimi-go...")
+    return await _analyze_image_chat_fallback(image_data, user_text, "kimi-go")
+
+
+async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider: str) -> str | None:
+    """Analyze image with any chat-compatible provider (reuses _analyze_image logic)."""
+    import httpx
+
+    config = MODEL_CONFIGS.get(provider)
+    if not config:
+        return None
+
+    model = config["model"]
+    base_url = config.get("base_url", ZEN_BASE)
+    api_key = os.environ.get("OPENCODE_API_KEY", "")
+
+    media_type, b64 = _parse_image_data_url(image_data)
+    endpoint = f"{base_url}/chat/completions"
+
+    messages = [
+        {"role": "system", "content": IMAGE_ANALYSIS_PROMPT},
+        {"role": "user", "content": [
+            {"type": "text", "text": f"Analiza esta foto de pieza mecánica para generación CAD.\n\nPetición del usuario: {user_text}"},
+            {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}},
+        ]},
+    ]
+
+    req_headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    temp = float(config.get("temperature", 0.1))
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temp,
+        "max_tokens": 2048,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(endpoint, headers=req_headers, json=payload)
+            if resp.status_code >= 400:
+                print(f"[OPENAI] IMAGE FALLBACK {provider} FAILED: HTTP {resp.status_code}")
+                return None
+            data = resp.json()
+        description = data["choices"][0]["message"]["content"]
+        print(f"[OPENAI] IMAGE FALLBACK {provider}: {description[:120]}...")
+        return description
+    except Exception as e:
+        print(f"[OPENAI] IMAGE FALLBACK {provider} FAILED: {type(e).__name__}: {e}")
+        return None
+
+
+async def _analyze_cad_with_fallback(
+    png_paths: list[Path],
+    cad_facts: str,
+    user_request: str,
+) -> str | None:
+    """Inspect CAD snapshots: Gemini → kimi-go-2.7 → kimi-go."""
+    google_key = os.environ.get("GOOGLE_API_KEY", "")
+
+    # 1. Gemini
+    if google_key:
+        result = await _analyze_cad_snapshots_gemini(png_paths, cad_facts, user_request, google_key)
+        if result:
+            return result
+        print("[OPENAI] CAD FALLBACK: Gemini failed, trying kimi-go-2.7...")
+
+    # 2. kimi-go-2.7
+    print("[OPENAI] CAD FALLBACK: Gemini failed, trying kimi-go-2.7...")
+    opencode_key = os.environ.get("OPENCODE_API_KEY", "")
+    result = await _analyze_cad_snapshots(
+        png_paths, cad_facts, user_request, opencode_key, provider="kimi-go-2.7"
+    )
+    if result:
+        return result
+
+    # 3. kimi-go
+    print("[OPENAI] CAD FALLBACK: kimi-go-2.7 failed, trying kimi-go...")
+    result = await _analyze_cad_snapshots(
+        png_paths, cad_facts, user_request, opencode_key, provider="kimi-go"
+    )
+    if result:
+        return result
+
+
 # ── CAD auto-inspection (post-generation visual feedback) ────────────────────
 
-CAD_INSPECTION_PROMPT = """Eres un inspector de calidad revisando una pieza CAD generada automáticamente.
+CAD_INSPECTION_PROMPT = """Eres un inspector de calidad. Compara la pieza CAD generada contra la PETICIÓN ORIGINAL del usuario.
 
-Se te muestran 5 vistas (frontal, posterior, izquierda, derecha, inferior) de la pieza.
+Se te muestran 5 vistas + datos geométricos.
 
-Evalúa CONCRETAMENTE:
-1. ¿La geometría coincide con lo solicitado por el usuario?
-2. ¿Hay errores obvios? (agujeros mal ubicados, dimensiones incorrectas, sólidos separados, filetes/chaflanes mal aplicados)
-3. ¿Faltan características que el usuario pidió?
-4. ¿La pieza es simétrica donde debería serlo?
-5. Sugerencias concretas de corrección con MEDIDAS ESPECÍFICAS.
+## REGLA DE ORO
+SOLO reporta errores que CONTRADIGAN la petición explícita del usuario.
+NO sugieras mejoras, filetes adicionales, ni características que el usuario NO pidió.
+Si la pieza coincide con lo solicitado → "PIEZA CORRECTA" y nada más.
 
-Sé BREVE. Máximo 5-6 líneas. Solo menciona problemas REALES. Si la pieza es correcta, confírmalo en una línea."""
+## Qué evaluar (SOLO si el usuario lo pidió)
+- Dimensiones: ¿el tamaño coincide con lo solicitado?
+- Features: ¿están TODAS las que el usuario mencionó? ¿falta alguna?
+- Posición: ¿están donde el usuario dijo?
+- Cantidad: ¿hay el número correcto de agujeros/ranuras/etc?
+- Filetes/chaflanes: ¿están SOLO donde el usuario los pidió?
+
+## Qué NO hacer
+- NO sugieras agregar filetes donde no se pidieron
+- NO digas "las aristas son vivas" a menos que el usuario haya pedido filetes
+- NO inventes requisitos que no están en la petición original
+- NO des opiniones estéticas
+
+## Si hay error
+- Mencioná SOLO el error concreto. Ej: "Falta el agujero Ø8 mm en la cara superior"
+- Si la pieza es correcta: "PIEZA CORRECTA" (una línea, sin más)
+"""
 
 # Track which model_ids have already been auto-inspected this session
 _auto_inspected_mids: set[str] = set()
@@ -1034,23 +1430,29 @@ _auto_inspected_mids: set[str] = set()
 # Store last user request per session for auto-inspect context
 _last_user_request: dict[str, str] = {}
 
+# Store last image analysis per session so inspector can compare against original photo
+_last_image_analysis: dict[str, str] = {}
+
 
 async def _analyze_cad_snapshots(
     png_paths: list[Path],
     cad_facts: str,
     user_request: str,
     api_key: str,
+    provider: str | None = None,
 ) -> str | None:
-    """Send 5 CAD snapshots to Kimi GO (chat API) for engineering inspection."""
+    """Send 5 CAD snapshots to a chat-compatible provider for engineering inspection."""
     import httpx
     import base64
 
-    analyzer_config = MODEL_CONFIGS.get(IMAGE_ANALYZER)
+    provider = provider or IMAGE_ANALYZER
+    analyzer_config = MODEL_CONFIGS.get(provider)
     if not analyzer_config:
         return None
 
     analyzer_model = analyzer_config["model"]
     analyzer_base = analyzer_config.get("base_url", ZEN_BASE)
+    temperature = float(analyzer_config.get("temperature", 0.1))
     endpoint = f"{analyzer_base}/chat/completions"
 
     # Build image parts for all 5 views
@@ -1084,7 +1486,7 @@ async def _analyze_cad_snapshots(
     payload = {
         "model": analyzer_model,
         "messages": messages,
-        "temperature": 0.1,
+        "temperature": temperature,
         "max_tokens": 1024,
     }
 
@@ -1096,12 +1498,12 @@ async def _analyze_cad_snapshots(
                 print(f"[OPENAI] CAD SNAPSHOT ANALYSIS FAILED: HTTP {resp.status_code} — {body}")
                 return None
             data = resp.json()
+        description = data["choices"][0]["message"]["content"]
+        print(f"[OPENAI] CAD SNAPSHOT ANALYSIS: {description[:120] if description else '(empty)'}...")
     except Exception as e:
         print(f"[OPENAI] CAD SNAPSHOT ANALYSIS FAILED: {type(e).__name__}: {e}")
         return None
 
-    description = data["choices"][0]["message"]["content"]
-    print(f"[OPENAI] CAD SNAPSHOT ANALYSIS: {description[:120]}...")
     return description
 
 
@@ -1166,13 +1568,13 @@ async def _analyze_cad_snapshots_anthropic(
                 print(f"[OPENAI] CAD SNAPSHOT ANALYSIS B FAILED: HTTP {resp.status_code} — {body}")
                 return None
             data = resp.json()
+        content_blocks_out = data.get("content", [])
+        text_blocks = [b["text"] for b in content_blocks_out if b.get("type") == "text"]
+        description = " ".join(text_blocks) if text_blocks else ""
     except Exception as e:
         print(f"[OPENAI] CAD SNAPSHOT ANALYSIS B FAILED: {type(e).__name__}: {e}")
         return None
 
-    content_blocks_out = data.get("content", [])
-    text_blocks = [b["text"] for b in content_blocks_out if b.get("type") == "text"]
-    description = " ".join(text_blocks) if text_blocks else ""
     print(f"[OPENAI] CAD SNAPSHOT ANALYSIS B: {description[:120]}...")
     return description or None
 
@@ -1249,28 +1651,28 @@ async def _auto_inspect_cad(
     except Exception:
         pass
 
-    # 3. Send to both vision inspectors in parallel
-    print(f"[OPENAI] Auto-inspect: {len(png_paths)} views → {IMAGE_ANALYZER} + {IMAGE_ANALYZER_B}")
-    inspect_a, inspect_b = await asyncio.gather(
-        _analyze_cad_snapshots(png_paths, cad_facts, user_request, api_key),
-        _analyze_cad_snapshots_anthropic(png_paths, cad_facts, user_request, api_key),
-    )
+    # Include original image analysis so inspector can compare CAD vs photo
+    session_id = _current_session_id.get()
+    img_analysis = _last_image_analysis.get(session_id, "")
+    if img_analysis:
+        user_request = (
+            f"[COMPARA CONTRA ESTE ANÁLISIS DE LA FOTO ORIGINAL]\n{img_analysis}\n\n"
+            f"[PETICIÓN DEL USUARIO]\n{user_request}"
+        )
 
-    # 4. Merge feedback
-    merged_parts = []
-    if inspect_a:
-        merged_parts.append(f"## Inspector A (Kimi):\n{inspect_a}")
-    if inspect_b:
-        merged_parts.append(f"## Inspector B (MiniMax):\n{inspect_b}")
+    # 3. Send to Gemini / fallback chain for inspection
+    print(f"[OPENAI] Auto-inspect: {len(png_paths)} views → Gemini fallback chain")
+    feedback = await _analyze_cad_with_fallback(png_paths, cad_facts, user_request)
 
-    if not merged_parts:
-        print(f"[OPENAI] Auto-inspect: both inspectors failed")
+    if not feedback:
+        print(f"[OPENAI] Auto-inspect: all inspectors failed")
         return None
 
+    # Wrap feedback for LLM context
     feedback = (
         "[INSPECCIÓN VISUAL AUTOMÁTICA — 5 vistas]\n"
-        + "\n\n".join(merged_parts)
-        + "\n\nCorrige la geometría si los inspectores encontraron errores. Si la pieza es correcta, confírmalo."
+        + feedback
+        + "\n\nCorrige la geometría si el inspector encontró errores. Si la pieza es correcta, confírmalo."
     )
 
     _auto_inspected_mids.add(model_id)
@@ -1313,54 +1715,41 @@ async def process_user_message(
     _current_tier.set(tier)
     print(f"[OPENAI] TIER={tier} provider={provider} model={model} session={session_id[:12]}")
 
-    # ── Image pipeline: non-vision model + image → analyze with Kimi GO first ─
+    # ── Image pipeline: non-vision model + image → analyze with Gemini / fallback ─
     needs_image_pipeline = (
         image_data is not None
         and provider not in MODELS_WITH_VISION
-        and IMAGE_ANALYZER in MODEL_CONFIGS
-        and provider != IMAGE_ANALYZER
         and api != "gemini"
     )
     if needs_image_pipeline:
-        print(f"[OPENAI] IMAGE PIPELINE: dual analysis with {IMAGE_ANALYZER} + {IMAGE_ANALYZER_B}...")
+        print(f"[OPENAI] IMAGE PIPELINE: analyzing with Gemini → fallback chain...")
         await websocket.send(json.dumps({
             "type": "agent_event",
-            "tool_call": {"name": "analyze_image", "args": {"providers": [IMAGE_ANALYZER, IMAGE_ANALYZER_B]}},
+            "tool_call": {"name": "analyze_image", "args": {"engine": "gemini-2.5-pro"}}
         }))
 
-        # Run both analyzers in parallel
-        desc_a, desc_b = await asyncio.gather(
-            _analyze_image(image_data, user_text),
-            _analyze_image_anthropic(image_data, user_text),
-        )
+        description = await _analyze_image_with_fallback(image_data, user_text)
 
-        # Merge descriptions
-        merged_parts = []
-        if desc_a:
-            merged_parts.append(f"## Ingeniero A (Kimi):\n{desc_a}")
-        if desc_b:
-            merged_parts.append(f"## Ingeniero B (MiniMax):\n{desc_b}")
-
-        if merged_parts:
-            merged = "[ANÁLISIS COMBINADO — DOS INGENIEROS]\n" + "\n\n".join(merged_parts) + "\n\n[CONSENSO — Usa AMBOS análisis para generar el CAD más preciso]"
-            description = desc_a or desc_b  # for the progress event
+        if description:
+            # Store for auto-inspect comparison
+            _last_image_analysis[session_id] = description
             augmented_text = (
-                f"{merged}\n\n"
+                f"[ANÁLISIS DE IMAGEN — INGENIERO]\n{description}\n\n"
                 f"Petición del usuario: {user_text}\n\n"
-                "IMPORTANTE: genera el CAD DIRECTAMENTE basado en el consenso. "
-                "No repitas las descripciones — el usuario ya las conoce. Sé conciso."
+                "IMPORTANTE: genera el CAD DIRECTAMENTE basado en el análisis. "
+                "No repitas la descripción — el usuario ya la conoce. Sé conciso."
             )
             image_data = None
             await websocket.send(json.dumps({
                 "type": "agent_event",
-                "tool_result": {"name": "analyze_image", "response": f"Dos análisis completados ({len(merged_parts)} exitosos)."},
+                "tool_result": {"name": "analyze_image", "response": "Análisis completado."},
             }))
             await websocket.send(json.dumps({
                 "type": "agent_event",
-                "text": "Imagen analizada por dos ingenieros. Generando CAD con consenso...",
+                "text": "Imagen analizada. Generando CAD...",
             }))
         else:
-            print(f"[OPENAI] IMAGE PIPELINE FAILED — both analyzers failed")
+            print(f"[OPENAI] IMAGE PIPELINE FAILED — all analyzers failed")
             image_data = None
             await websocket.send(json.dumps({
                 "type": "agent_event",
@@ -1387,6 +1776,12 @@ async def process_user_message(
         await _run_messages(websocket, messages, model, api_key, base_url)
     elif api == "gemini":
         await _run_gemini_zen(websocket, messages, model, api_key)
+    elif api == "gemini-direct":
+        google_key = os.environ.get("GOOGLE_API_KEY", "")
+        if not google_key:
+            await websocket.send(json.dumps({"type": "error", "error": "GOOGLE_API_KEY not set. Add it to .env"}))
+            return
+        await _run_gemini_direct(websocket, messages, model, google_key)
     else:
         await _run_chat(websocket, messages, model, api_key, base_url, temperature)
 
@@ -1452,6 +1847,7 @@ async def agent_session(websocket) -> None:
         except Exception as e:
             print(f"[OPENAI] cleanup error for {sid[:12]}: {e}")
         _last_user_request.pop(sid, None)
+        _last_image_analysis.pop(sid, None)
     print(f"[OPENAI] DISCONNECT from={addr}")
 
 

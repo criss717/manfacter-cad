@@ -218,10 +218,11 @@ export default function ChatPanel() {
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[85%] px-4 py-2.5 rounded-fl text-body-sm leading-relaxed ${msg.role === "user"
-                  ? "bg-azure text-snow rounded-br-md"
-                  : "bg-fog text-ink rounded-bl-md"
-                  }`}
+                className={`max-w-[85%] px-4 py-2.5 rounded-fl text-body-sm leading-relaxed ${
+                  msg.role === "user"
+                    ? "bg-azure text-snow rounded-br-md"
+                    : "bg-fog text-ink rounded-bl-md"
+                }`}
               >
                 {msg.role === "assistant" && <TierBadge tier={msg.tier} />}
                 {msg.image && (

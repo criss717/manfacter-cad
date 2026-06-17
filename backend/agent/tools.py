@@ -223,6 +223,87 @@ def classify_cad_error(error: str) -> str:
                 "Consulta la seccion revolve del bloque GOTCHAS."
             )
 
+        if "no objects to create a hull" in e:
+            return (
+                "ERROR (make_face / GOTCHAS): el sketch esta VACIO. "
+                "make_face() necesita geometria 2D previa. "
+                "Dentro de BuildSketch DEBES dibujar al menos una figura: "
+                "Rectangle, Circle, Polygon, etc. "
+                "Consulta la seccion make_face del bloque GOTCHAS."
+            )
+
+        if "width and height must be > 2*radius" in e:
+            return (
+                "ERROR (RectangleRounded / GOTCHAS): el radio del filete "
+                "es demasiado grande para el rectangulo. "
+                "RectangleRounded requiere: width > 2*radius Y height > 2*radius. "
+                "Reduce el radio o aumenta width/height. "
+                "Ej: RectangleRounded(40, 20, 5) = OK, "
+                "RectangleRounded(10, 8, 6) = ERROR. "
+                "Consulta la seccion RectangleRounded del bloque GOTCHAS."
+            )
+
+        if "close" in e and "is not defined" in e:
+            return (
+                "ERROR (close / GOTCHAS): close() NO existe en build123d. "
+                "Los bloques 'with BuildPart():' y 'with BuildSketch():' "
+                "se cierran automaticamente. Elimina la linea 'close()'. "
+                "Consulta la seccion NUNCA uses close del bloque GOTCHAS."
+            )
+
+        if "line.__init__" in e and "start_point" in e:
+            return (
+                "ERROR (Line / GOTCHAS): Line usa argumentos POSICIONALES, "
+                "no keywords. Firma: Line((x1,y1), (x2,y2)). "
+                "Ej: Line((0,0), (50,10)). "
+                "NUNCA uses start_point= ni end_point=. "
+                "Consulta la seccion Line/RadiusArc del bloque GOTCHAS."
+            )
+
+        if "radiusarc" in e and ("missing" in e or "positional" in e):
+            return (
+                "ERROR (RadiusArc / GOTCHAS): RadiusArc usa argumentos "
+                "POSICIONALES. Firma: RadiusArc(start, end, radius). "
+                "Ej: RadiusArc((0,0), (10,10), 5). "
+                "NUNCA uses keywords. "
+                "Consulta la seccion Line/RadiusArc del bloque GOTCHAS."
+            )
+
+        if "method' object is not subscriptable" in e:
+            return (
+                "ERROR (vertices/edges / GOTCHAS): vertices() y edges() "
+                "son METODOS, requieren parentesis. "
+                "Usa: polyline.vertices()[-1], NO polyline.vertices[-1]. "
+                "Usa: shape.edges(), NO shape.edges. "
+                "Consulta la seccion vertices del bloque GOTCHAS."
+            )
+
+        if "edge' object is not callable" in e or ".first()" in e.lower():
+            return (
+                "ERROR (first/last / GOTCHAS): .first() NO existe en "
+                "build123d. Usa sort_by() con indices: "
+                "edges().sort_by(Axis.Z)[-1] para la mas alta, [0] para la mas baja. "
+                "NO uses .first() ni .last(). "
+                "Consulta la seccion NO uses .first del bloque GOTCHAS."
+            )
+
+        if "vertex" in e and "pos" in e and "has no attribute" in e:
+            return (
+                "ERROR (Vertex / GOTCHAS): Vertex NO tiene .pos(). "
+                "Usa v.to_tuple() -> (x,y,z) o v.X, v.Y, v.Z. "
+                "Ej: path.vertices()[-1].to_tuple() "
+                "Consulta la seccion Vertex del bloque GOTCHAS."
+            )
+
+        if "arc radius is not large enough" in e:
+            return (
+                "ERROR (RadiusArc / GOTCHAS): el radio del arco es "
+                "demasiado pequeno para conectar los dos puntos. "
+                "Aumenta el radio o acerca los puntos. "
+                "El radio debe ser >= mitad de la distancia entre puntos. "
+                "Consulta la seccion RadiusArc del bloque GOTCHAS."
+            )
+
         if (
             "does not intersect" in e
             or "does not overlap" in e
@@ -646,4 +727,4 @@ def make_snapshots(step_path: str) -> dict:
 
 
 # Tool definitions for the agent
-TOOLS = [run_cad_code, inspect_geometry, read_reference, list_outputs, make_snapshot]
+TOOLS = [run_cad_code, inspect_geometry, read_reference, list_outputs, make_snapshot, make_snapshots]

@@ -45,6 +45,7 @@ from agent.tools import (
     _current_tier,
     release_session_resources,
     set_expected_dims,
+    make_snapshots,
 )
 
 # Gemini models available via the direct Google API key

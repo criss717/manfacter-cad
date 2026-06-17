@@ -4,7 +4,7 @@ export type LLMProvider =
   | "gemini"           // Gemini 3.5 Flash — Google API key (ADK)
   | "gemini-pro-google" // Gemini 3.1 Pro  — Google API key (ADK)
   | "gemini-2.5-pro"   // Gemini 2.5 Pro  — Google API key (ADK)
-  | "gemini-pro"       // Gemini 3.1 Pro  — via OpenCode Zen (port 8003)
+  | "gemini-pro"        // Gemini 3.1 Pro  — via OpenCode Zen (port 8003)
   | "sonnet"
   | "opus"
   | "qwen"

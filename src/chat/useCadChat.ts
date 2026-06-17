@@ -94,10 +94,12 @@ export function useCadChat() {
   }, [cancelRequestKey, setComplexModalOpen]);
 
   const getAgentUrl = useCallback(() => {
-    // gemini / gemini-pro-google → ADK server (Google API key, port 8002)
-    // deepseek-v4-pro-sdk      → Agents SDK server (port 8004, experimental)
-    // gemini-pro + everything else → OpenCode Zen server (port 8003)
-    const isGeminiDirect = provider === "gemini" || provider === "gemini-pro-google" || provider === "gemini-2.5-pro";
+    // gemini / gemini-pro-google / gemini-1.5-* → ADK server (Google API key, port 8002)
+    // gemini-pro → OpenCode Zen server (port 8003)
+    // Everything else → OpenCode Zen server (port 8003)
+    const isGeminiDirect = provider === "gemini"
+      || provider === "gemini-pro-google"
+      || provider === "gemini-2.5-pro";
     if (isGeminiDirect) return getWsUrl("/ws/gemini", "8002");
     if (provider === "deepseek-v4-pro-sdk") return getWsUrl("/ws/sdk", "8004");
     return getWsUrl("/ws/openai", "8003");

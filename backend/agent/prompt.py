@@ -257,6 +257,47 @@ NUNCA invertir el orden ni pasar un solo edge sin envolverlo en `[...]`.
 - NO existe `angle=` en `revolve()` — la revolución siempre es 360°.
 - ERROR: `RuntimeError: revolve doesn't accept Axis`
 - ERROR: `TypeError: revolve() got an unexpected keyword argument 'angle'`
+
+### make_face() — necesita geometría 2D previa
+- `make_face()` falla si el sketch está VACÍO.
+- Siempre dibujá geometría DENTRO del `with BuildSketch()`: Rectangle, Circle, Polygon, etc.
+- ERROR: `ValueError: No objects to create a hull`
+- FIX: asegurate de que cada `BuildSketch` tenga al menos una figura geométrica.
+
+### RectangleRounded — width/height > 2*radius
+- `RectangleRounded(width, height, radius)` exige que `width > 2*radius` Y `height > 2*radius`.
+- Si el radio es muy grande para el rectángulo, reducí el radio o aumentá las dimensiones.
+- ERROR: `ValueError: width and height must be > 2*radius`
+
+### NUNCA uses close() — build123d usa context managers
+- `close()` NO existe. Los bloques `with BuildPart():`, `with BuildSketch():` se cierran solos.
+- ERROR: `NameError: name 'close' is not defined`
+
+### Line, RadiusArc, Polyline — argumentos posicionales, NO keywords
+- `Line((x1, y1), (x2, y2))` — posicional, NUNCA `start_point=` ni `end_point=`.
+- `RadiusArc(start_point, end_point, radius)` — 3 argumentos posicionales.
+- `Polyline(p1, p2, p3, ...)` — argumentos posicionales, NO lista.
+- ERROR: `TypeError: Line.__init__() got an unexpected keyword argument 'start_point'`
+- ERROR: `TypeError: RadiusArc.__init__() missing 1 required positional argument: 'radius'`
+
+### vertices() y edges() son MÉTODOS, no atributos
+- `polyline.vertices()` con paréntesis — NO `polyline.vertices`.
+- `shape.edges()` con paréntesis — NO `shape.edges`.
+- ERROR: `TypeError: 'method' object is not subscriptable` → olvidaste los `()`
+
+### NO uses .first() ni .last() — usa índices []
+- `.first()` y `.last()` no existen en build123d.
+- Usa `.sort_by(Axis.Z)[-1]` para la cara/arista más alta, `[0]` para la más baja.
+- ERROR: `TypeError: 'Edge' object is not callable` → llamaste `.first()` que no existe
+
+### Vertex — NO tiene .pos(), usa .to_tuple() o .X/.Y/.Z
+- `Vertex` no tiene método `.pos()`. Usa `v.to_tuple()` → `(x, y, z)` o `v.X`, `v.Y`, `v.Z`.
+- ERROR: `AttributeError: 'Vertex' object has no attribute 'pos'`
+
+### RadiusArc — el radio debe ser >= mitad de la distancia entre puntos
+- Si el radio es muy chico, el arco no puede conectar los dos puntos.
+- Aumentá el radio o acercá los puntos.
+- ERROR: `ValueError: Arc radius is not large enough to reach the end point`
 """.format(version=GOTCHAS_VERSION)
 
 
@@ -522,6 +563,10 @@ def build_tier_directive(tier: Tier) -> str:
             "  Each face/plane = one sketch. Draw 2D → Extrude/Revolve.\n"
             "  ZERO tolerance for manual 3D positioning with .moved().\n"
             "  Pattern: select face → BuildSketch(face) → draw 2D → extrude/revolve.\n"
+            "- VISUAL INSPECTION: MANDATORY after EVERY successful run_cad_code.\n"
+            "  Call make_snapshots(step_path) to get 5 canonical views.\n"
+            "  Visually inspect ALL views before reporting success.\n"
+            "  If you see misalignment, missing features, or wrong positions → fix and regenerate.\n"
             "- MANDATORY_SNAPSHOT: after a successful inspect_geometry you MUST call "
             "make_snapshot(step_path) before reporting back to the user.\n"
             "- Mesh deflection: fine (0.02 mm linear, 0.3 angular).\n"
@@ -533,6 +578,8 @@ def build_tier_directive(tier: Tier) -> str:
         "  Draw profiles in 2D first, then extrude or revolve.\n"
         "  Avoid manual 3D positioning (.moved, Location) unless necessary.\n"
         "  For stepped shafts: BuildSketch profile → Revolve around axis.\n"
+        "- VISUAL INSPECTION: after successful run_cad_code, call make_snapshots(step_path)\n"
+        "  to verify geometry from 5 angles. Report any issues found.\n"
         "- Snapshot: optional unless visual ambiguity is detected.\n"
         "- Mesh deflection: default (0.05 mm linear, 0.5 angular).\n"
     )
