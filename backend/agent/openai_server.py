@@ -588,10 +588,12 @@ async def _run_gemini_zen(
             print(f"[OPENAI] TOOL: {name}")
 
             try:
-                fn = TOOL_MAP.get(name)
-                result = str(fn(args)) if fn else json.dumps({"error": f"Unknown tool: {name}"})
                 if name == "run_cad_code":
+                    result = await asyncio.to_thread(run_cad_code, args.get("code", ""))
                     result = _restore_code_in_result(result)
+                else:
+                    fn = TOOL_MAP.get(name)
+                    result = str(fn(args)) if fn else json.dumps({"error": f"Unknown tool: {name}"})
                 print(f"[OPENAI] RESULT: {name} ok ({len(result)} chars)")
             except Exception as e:
                 result = json.dumps({"error": str(e)})
@@ -746,10 +748,12 @@ async def _run_gemini_direct(
             print(f"[OPENAI] TOOL: {name}")
 
             try:
-                fn = TOOL_MAP.get(name)
-                result = str(fn(args)) if fn else json.dumps({"error": f"Unknown tool: {name}"})
                 if name == "run_cad_code":
+                    result = await asyncio.to_thread(run_cad_code, args.get("code", ""))
                     result = _restore_code_in_result(result)
+                else:
+                    fn = TOOL_MAP.get(name)
+                    result = str(fn(args)) if fn else json.dumps({"error": f"Unknown tool: {name}"})
                 print(f"[OPENAI] RESULT: {name} ok ({len(result)} chars)")
             except Exception as e:
                 result = json.dumps({"error": str(e)})
@@ -1021,10 +1025,12 @@ async def _run_messages(
             print(f"[OPENAI] TOOL: {b['name']}")
 
             try:
-                fn = TOOL_MAP.get(b["name"])
-                result = str(fn(b["input"])) if fn else json.dumps({"error": f"Unknown tool: {b['name']}"})
                 if b["name"] == "run_cad_code":
+                    result = await asyncio.to_thread(run_cad_code, b["input"].get("code", ""))
                     result = _restore_code_in_result(result)
+                else:
+                    fn = TOOL_MAP.get(b["name"])
+                    result = str(fn(b["input"])) if fn else json.dumps({"error": f"Unknown tool: {b['name']}"})
                 print(f"[OPENAI] RESULT: {b['name']} ok ({len(result)} chars)")
             except Exception as e:
                 result = json.dumps({"error": str(e)})
@@ -1033,8 +1039,8 @@ async def _run_messages(
             await websocket.send(json.dumps({
                 "type": "agent_event",
                 "tool_result": {
-                    "name": b["name"],
-                    "response": result if b["name"] == "run_cad_code" else result[:1000],
+                    "name": name,
+                    "response": result if name == "run_cad_code" else result[:1000],
                 },
             }))
             messages.append({"role": "tool", "tool_call_id": b["id"], "content": result})

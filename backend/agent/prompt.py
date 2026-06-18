@@ -269,6 +269,16 @@ NUNCA invertir el orden ni pasar un solo edge sin envolverlo en `[...]`.
 - Si el radio es muy grande para el rectángulo, reducí el radio o aumentá las dimensiones.
 - ERROR: `ValueError: width and height must be > 2*radius`
 
+### ROSCAS — NUNCA modeles la hélice real (CRITICAL)
+- NUNCA uses `Helix` + `sweep` para roscas. Lentísimo (40s+), STEP >20MB, falla 90%.
+- USA agujero liso con diámetro de broca (tap drill):
+  Métricas: M3→Ø2.5, M4→Ø3.3, M5→Ø4.2, M6→Ø5.0, M8→Ø6.8, M10→Ø8.5, M12→Ø10.2
+  Whitworth: W3/8"→Ø7.9, W1/4"→Ø5.1, W1/2"→Ø10.4
+  UNC: 1/4-20→Ø5.1, 3/8-16→Ø7.9, 1/2-13→Ø10.7
+- Agregá chaflán 0.5-1mm en la entrada del agujero.
+- En la respuesta al usuario decí "Rosca M8 — taladro Ø6.8 mm". El taller se encarga.
+- SOLO modeles rosca real si el usuario pide EXPLÍCITAMENTE "para impresión 3D".
+
 ### NUNCA uses close() — build123d usa context managers
 - `close()` NO existe. Los bloques `with BuildPart():`, `with BuildSketch():` se cierran solos.
 - ERROR: `NameError: name 'close' is not defined`
