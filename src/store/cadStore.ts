@@ -17,6 +17,21 @@ export interface CadParams {
   [name: string]: number;
 }
 
+export interface SelectedFace {
+  faceIndex: number;
+  description: string;
+  selector: string;
+  confidence: number;
+  matches?: FaceMatch[];
+  ambiguous?: boolean;
+}
+
+export interface FaceMatch {
+  index: number;
+  confidence: number;
+  selector: string;
+}
+
 const DEFAULT_COLOR = "#0080ff";
 const DEFAULT_BG = "#f5f5f7";
 
@@ -41,6 +56,9 @@ interface CadStore {
   cancelRequestKey: number;
   complexModalOpen: boolean;
   viewportFocusKey: number;
+  facePickerEnabled: boolean;
+  selectedFace: SelectedFace | null;
+  currentModelId: string | null;
 
   addMessage: (msg: ChatMessage) => void;
   setProcessing: (v: boolean) => void;
@@ -63,6 +81,9 @@ interface CadStore {
   bumpCancelRequest: () => void;
   setComplexModalOpen: (v: boolean) => void;
   focusViewport: () => void;
+  setFacePickerEnabled: (v: boolean) => void;
+  setSelectedFace: (face: SelectedFace | null) => void;
+  setCurrentModelId: (id: string | null) => void;
 }
 
 export const useCadStore = create<CadStore>((set) => ({
@@ -93,6 +114,9 @@ export const useCadStore = create<CadStore>((set) => ({
   cancelRequestKey: 0,
   complexModalOpen: false,
   viewportFocusKey: 0,
+  facePickerEnabled: false,
+  selectedFace: null,
+  currentModelId: null,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
   setProcessing: (v) => set({ isProcessing: v }),
@@ -130,6 +154,9 @@ export const useCadStore = create<CadStore>((set) => ({
   bumpCancelRequest: () => set((s) => ({ cancelRequestKey: s.cancelRequestKey + 1 })),
   setComplexModalOpen: (v) => set({ complexModalOpen: v }),
   focusViewport: () => set((s) => ({ viewportFocusKey: s.viewportFocusKey + 1 })),
+  setFacePickerEnabled: (v) => set((s) => ({ facePickerEnabled: v, selectedFace: v ? s.selectedFace : null })),
+  setSelectedFace: (face) => set({ selectedFace: face }),
+  setCurrentModelId: (id) => set({ currentModelId: id }),
   clearScene: () => set((s) => ({
     shapes: {},
     messages: [
@@ -150,6 +177,7 @@ export const useCadStore = create<CadStore>((set) => ({
     modelColor: DEFAULT_COLOR,
     sceneBackground: DEFAULT_BG,
     isProcessing: false,
+    currentModelId: null,
     chatInputFocusKey: s.chatInputFocusKey + 1,
     resetSessionKey: s.resetSessionKey + 1,
   })),

@@ -55,13 +55,14 @@ from agent.tools import (
     list_outputs,
     make_snapshot,
     make_snapshots,
+    pick_face_on_model,
     _attempt_counts,
     _current_session_id,
     _current_tier,
     release_session_resources,
     set_expected_dims,
 )
-from agent.prompt import CAD_AGENT_PROMPT, assemble_prompt
+from agent.prompt import CAD_AGENT_PROMPT, SIMPLE_CAD_PROMPT, assemble_prompt
 
 # ── Zen base URLs ──────────────────────────────────────────────────────────────
 ZEN_BASE    = "https://opencode.ai/zen/v1"
@@ -107,11 +108,13 @@ MODELS_WITH_VISION: set[str] = {
 }
 
 # ── Google Gemini direct (REST API, no Zen) ────────────────────────────────────
-GEMINI_VISION_MODEL = "gemini-2.5-pro"  # best balance: fast, good vision, cheap
+GEMINI_VISION_MODEL = "gemini-3.5-flash"  # best balance: fast, good vision, cheap
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 # ── Image analysis fallback chain (tried in order) ─────────────────────────────
-IMAGE_ANALYZER_CHAIN: list[str] = ["kimi-go-2.7", "kimi-go"]
+# NOTE: kimi-go-2.7 (kimi-k2.7-code) is a CODE model with NO vision support.
+# It works great as a CAD provider but CANNOT analyze images.
+IMAGE_ANALYZER_CHAIN: list[str] = ["kimi-go"]  # kimi-k2.6 has vision
 
 # Legacy: primary analyzer kept for the chat fallback
 IMAGE_ANALYZER = "kimi-go"
@@ -243,6 +246,26 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "pick_face_on_model",
+            "description": "Match a 3D click position + normal against OCP model faces. Returns face identity (index, selector, confidence). Use when the user clicks a face in the 3D viewer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "position_x": {"type": "number", "description": "X hit position in CAD mm"},
+                    "position_y": {"type": "number", "description": "Y hit position in CAD mm"},
+                    "position_z": {"type": "number", "description": "Z hit position in CAD mm"},
+                    "normal_x": {"type": "number", "description": "X surface normal"},
+                    "normal_y": {"type": "number", "description": "Y surface normal"},
+                    "normal_z": {"type": "number", "description": "Z surface normal"},
+                    "scale": {"type": "number", "description": "GLB-to-CAD scale (default 1000)"},
+                },
+                "required": ["position_x", "position_y", "position_z", "normal_x", "normal_y", "normal_z"],
+            },
+        },
+    },
 ]
 
 TOOL_MAP = {
@@ -252,6 +275,11 @@ TOOL_MAP = {
     "list_outputs":     lambda args: json.dumps(list_outputs(), default=str),
     "make_snapshot":    lambda args: json.dumps(make_snapshot(args["step_path"]), default=str),
     "make_snapshots":   lambda args: json.dumps(make_snapshots(args["step_path"]), default=str),
+    "pick_face_on_model": lambda args: pick_face_on_model(
+        args["position_x"], args["position_y"], args["position_z"],
+        args["normal_x"], args["normal_y"], args["normal_z"],
+        args.get("scale", 1000.0),
+    ),
 }
 
 # Anthropic format: {name, description, input_schema}
@@ -848,8 +876,6 @@ async def _run_chat(
 
             if delta.content:
                 assistant_text += delta.content
-                # Don't send intermediate thinking to frontend — only final response
-                print(f"[OPENAI] TEXT chunk: {delta.content[:60]}...")
 
             if delta.tool_calls:
                 for tc in delta.tool_calls:
@@ -1039,8 +1065,8 @@ async def _run_messages(
             await websocket.send(json.dumps({
                 "type": "agent_event",
                 "tool_result": {
-                    "name": name,
-                    "response": result if name == "run_cad_code" else result[:1000],
+                    "name": b["name"],
+                    "response": result if b["name"] == "run_cad_code" else result[:1000],
                 },
             }))
             messages.append({"role": "tool", "tool_call_id": b["id"], "content": result})
@@ -1307,20 +1333,18 @@ async def _analyze_image_with_fallback(image_data: str, user_text: str) -> str |
             return result
         print("[OPENAI] IMAGE FALLBACK: Gemini failed, trying kimi-go-2.7...")
 
-    # 2. kimi-go-2.7 (kimi-k2.7-code)
+    # 2. kimi-go-2.7 (kimi-k2.7-code, has vision, needs temperature=1.0)
     result = await _analyze_image_chat_fallback(image_data, user_text, "kimi-go-2.7")
     if result:
         return result
 
-    # 3. kimi-go (kimi-k2.6)
-    print("[OPENAI] IMAGE FALLBACK: kimi-go-2.7 failed, trying kimi-go...")
-    return await _analyze_image_chat_fallback(image_data, user_text, "kimi-go")
+    # 3. minimax-m3-go (Anthropic Messages, has vision)
+    print("[OPENAI] IMAGE FALLBACK: kimi-go-2.7 failed, trying minimax-m3-go...")
+    return await _analyze_image_anthropic(image_data, user_text)
 
 
 async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider: str) -> str | None:
-    """Analyze image with any chat-compatible provider (reuses _analyze_image logic)."""
-    import httpx
-
+    """Analyze image with any chat-compatible provider using OpenAI client."""
     config = MODEL_CONFIGS.get(provider)
     if not config:
         return None
@@ -1330,7 +1354,7 @@ async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider
     api_key = os.environ.get("OPENCODE_API_KEY", "")
 
     media_type, b64 = _parse_image_data_url(image_data)
-    endpoint = f"{base_url}/chat/completions"
+    print(f"[OPENAI] IMAGE FALLBACK {provider}: image {media_type} {len(b64)} chars base64")
 
     messages = [
         {"role": "system", "content": IMAGE_ANALYSIS_PROMPT},
@@ -1340,27 +1364,20 @@ async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider
         ]},
     ]
 
-    req_headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
-
     temp = float(config.get("temperature", 0.1))
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": temp,
-        "max_tokens": 2048,
-    }
 
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(endpoint, headers=req_headers, json=payload)
-            if resp.status_code >= 400:
-                print(f"[OPENAI] IMAGE FALLBACK {provider} FAILED: HTTP {resp.status_code}")
-                return None
-            data = resp.json()
-        description = data["choices"][0]["message"]["content"]
+        client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=300.0, max_retries=1)
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temp,
+            max_tokens=2048,
+        )
+        description = response.choices[0].message.content
+        if not description:
+            print(f"[OPENAI] IMAGE FALLBACK {provider}: empty content")
+            return None
         print(f"[OPENAI] IMAGE FALLBACK {provider}: {description[:120]}...")
         return description
     except Exception as e:
@@ -1373,8 +1390,9 @@ async def _analyze_cad_with_fallback(
     cad_facts: str,
     user_request: str,
 ) -> str | None:
-    """Inspect CAD snapshots: Gemini → kimi-go-2.7 → kimi-go."""
+    """Inspect CAD snapshots: Gemini → kimi-go."""
     google_key = os.environ.get("GOOGLE_API_KEY", "")
+    opencode_key = os.environ.get("OPENCODE_API_KEY", "")
 
     # 1. Gemini
     if google_key:
@@ -1383,51 +1401,41 @@ async def _analyze_cad_with_fallback(
             return result
         print("[OPENAI] CAD FALLBACK: Gemini failed, trying kimi-go-2.7...")
 
-    # 2. kimi-go-2.7
-    print("[OPENAI] CAD FALLBACK: Gemini failed, trying kimi-go-2.7...")
-    opencode_key = os.environ.get("OPENCODE_API_KEY", "")
+    # 2. kimi-go-2.7 (has vision, temperature=1.0)
     result = await _analyze_cad_snapshots(
         png_paths, cad_facts, user_request, opencode_key, provider="kimi-go-2.7"
     )
     if result:
         return result
 
-    # 3. kimi-go
-    print("[OPENAI] CAD FALLBACK: kimi-go-2.7 failed, trying kimi-go...")
-    result = await _analyze_cad_snapshots(
-        png_paths, cad_facts, user_request, opencode_key, provider="kimi-go"
-    )
-    if result:
-        return result
+    # 3. minimax-m3-go (Anthropic, has vision)
+    print("[OPENAI] CAD FALLBACK: kimi-go-2.7 failed, trying minimax-m3-go...")
+    return await _analyze_cad_snapshots_anthropic(png_paths, cad_facts, user_request, opencode_key)
 
+    print("[OPENAI] CAD FALLBACK: all inspectors failed")
+    return None
 
-# ── CAD auto-inspection (post-generation visual feedback) ────────────────────
+CAD_INSPECTION_PROMPT = """Eres un inspector de calidad. Compara la pieza CAD generada contra la PETICIÓN ORIGINAL del usuario y el CÓDIGO BUILD123D usado para generarla.
 
-CAD_INSPECTION_PROMPT = """Eres un inspector de calidad. Compara la pieza CAD generada contra la PETICIÓN ORIGINAL del usuario.
-
-Se te muestran 5 vistas + datos geométricos.
+Se te muestran 5 vistas + datos geométricos + el código Python que la generó.
 
 ## REGLA DE ORO
 SOLO reporta errores que CONTRADIGAN la petición explícita del usuario.
-NO sugieras mejoras, filetes adicionales, ni características que el usuario NO pidió.
-Si la pieza coincide con lo solicitado → "PIEZA CORRECTA" y nada más.
+El código build123d te dice EXACTAMENTE qué quiso hacer el modelo — verificá que el resultado visual coincida.
 
-## Qué evaluar (SOLO si el usuario lo pidió)
-- Dimensiones: ¿el tamaño coincide con lo solicitado?
-- Features: ¿están TODAS las que el usuario mencionó? ¿falta alguna?
-- Posición: ¿están donde el usuario dijo?
-- Cantidad: ¿hay el número correcto de agujeros/ranuras/etc?
-- Filetes/chaflanes: ¿están SOLO donde el usuario los pidió?
+## Usa el código para detectar:
+- ¿El código usa `RadiusArc` con centro arriba (convexo) pero la imagen muestra filete cóncavo?
+- ¿Las dimensiones en el código coinciden con lo que se ve?
+- ¿El código omitió features que el análisis de imagen mencionaba?
+- ¿El código usa `Cylinder(radius=7.9)` para rosca W 3/8"? → correcto (diámetro de broca)
 
 ## Qué NO hacer
 - NO sugieras agregar filetes donde no se pidieron
-- NO digas "las aristas son vivas" a menos que el usuario haya pedido filetes
-- NO inventes requisitos que no están en la petición original
+- NO inventes requisitos
 - NO des opiniones estéticas
 
-## Si hay error
-- Mencioná SOLO el error concreto. Ej: "Falta el agujero Ø8 mm en la cara superior"
-- Si la pieza es correcta: "PIEZA CORRECTA" (una línea, sin más)
+## Si hay error → mencioná SOLO el error concreto
+## Si es correcta → "PIEZA CORRECTA" (una línea)
 """
 
 # Track which model_ids have already been auto-inspected this session
@@ -1657,6 +1665,18 @@ async def _auto_inspect_cad(
     except Exception:
         pass
 
+    # Extract the build123d code so inspector can verify intent vs result
+    try:
+        script_path = model_dir / "_script.py"
+        if script_path.exists():
+            code = script_path.read_text(encoding="utf-8")
+            # Truncate to keep inspector focused on profile/geometry
+            if len(code) > 3000:
+                code = code[:3000] + "\n... (truncated)"
+            cad_facts += f"\n\n[CODIGO BUILD123D GENERADO]\n{code}"
+    except Exception:
+        pass
+
     # Include original image analysis so inspector can compare CAD vs photo
     session_id = _current_session_id.get()
     img_analysis = _last_image_analysis.get(session_id, "")
@@ -1731,7 +1751,7 @@ async def process_user_message(
         print(f"[OPENAI] IMAGE PIPELINE: analyzing with Gemini → fallback chain...")
         await websocket.send(json.dumps({
             "type": "agent_event",
-            "tool_call": {"name": "analyze_image", "args": {"engine": "gemini-2.5-pro"}}
+            "tool_call": {"name": "analyze_image", "args": {"engine": "gemini-3.5-flash"}}
         }))
 
         description = await _analyze_image_with_fallback(image_data, user_text)
@@ -1763,7 +1783,14 @@ async def process_user_message(
             }))
 
     if session_id not in SESSIONS:
-        SESSIONS[session_id] = [{"role": "system", "content": CAD_AGENT_PROMPT}]
+        system_prompt = SIMPLE_CAD_PROMPT if tier == "SIMPLE" else CAD_AGENT_PROMPT
+        SESSIONS[session_id] = [{"role": "system", "content": system_prompt}]
+    else:
+        # Update system prompt if tier changed (e.g. SIMPLE → MODERATE escalation)
+        current_system = SESSIONS[session_id][0].get("content", "") if SESSIONS[session_id] else ""
+        target_prompt = SIMPLE_CAD_PROMPT if tier == "SIMPLE" else CAD_AGENT_PROMPT
+        if current_system != target_prompt and SESSIONS[session_id]:
+            SESSIONS[session_id][0]["content"] = target_prompt
     SESSION_LAST_ACCESS[session_id] = time.time()
 
     expected_dims = set_expected_dims(session_id, user_text)
@@ -1819,6 +1846,27 @@ async def agent_session(websocket) -> None:
         provider   = msg.get("provider", DEFAULT_PROVIDER)
         user_image = msg.get("image", None)
         client_sid = msg.get("session_id", f"sid_{addr}_{id(websocket)}")
+
+        # Handle face_pick messages
+        if msg.get("type") == "face_pick":
+            pos = msg.get("position", {})
+            nrm = msg.get("normal", {})
+            scale = msg.get("scale", 1000.0)
+            model_id = msg.get("modelId", "")
+            _current_session_id.set(client_sid)
+            try:
+                result = pick_face_on_model(
+                    pos.get("x", 0), pos.get("y", 0), pos.get("z", 0),
+                    nrm.get("x", 0), nrm.get("y", 0), nrm.get("z", 0),
+                    scale,
+                    model_id=model_id,
+                )
+                data = json.loads(result)
+                response = {"type": "face_pick_result", **data}
+                await websocket.send(json.dumps(response))
+            except Exception as e:
+                await websocket.send(json.dumps({"type": "face_pick_result", "error": str(e)}))
+            continue
 
         if not user_text and not user_image:
             await websocket.send(json.dumps({"type": "error", "error": "Missing 'message'"}))

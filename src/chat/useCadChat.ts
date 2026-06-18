@@ -1,9 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useCadStore, type CadTier, type ChatMessage } from "@/store/cadStore";
+import { useCadStore, type CadTier, type ChatMessage, type SelectedFace } from "@/store/cadStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { autoSaveConversation } from "@/store/autoSave";
+
+/** WebSocket message sent to backend when user clicks a face. */
+export interface FacePickMessage {
+  type: "face_pick";
+  position: { x: number; y: number; z: number };
+  normal: { x: number; y: number; z: number };
+  scale: number;
+  modelId: string;
+  session_id: string;
+}
+
+/** WebSocket message received from backend with face match result. */
+export interface FacePickResultMessage {
+  type: "face_pick_result";
+  faceIndex: number;
+  description: string;
+  selector: string;
+  confidence: number;
+  matches?: Array<{ index: number; confidence: number; selector: string }>;
+  ambiguous?: boolean;
+  error?: string;
+}
 
 function getWsUrl(path: string, directPort: string): string {
   if (process.env.NEXT_PUBLIC_PROXY) {
@@ -61,6 +83,8 @@ export function useCadChat() {
   const resetSessionKey = useCadStore((s) => s.resetSessionKey);
   const cancelRequestKey = useCadStore((s) => s.cancelRequestKey);
   const setComplexModalOpen = useCadStore((s) => s.setComplexModalOpen);
+  const setCurrentModelId = useCadStore((s) => s.setCurrentModelId);
+  const setSelectedFace = useCadStore((s) => s.setSelectedFace);
   const provider = useSettingsStore((s) => s.provider);
   const [streamingText, setStreamingText] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
@@ -126,6 +150,23 @@ export function useCadChat() {
       return null;
     }
   }, [getAgentUrl]);
+
+  const sendFacePick = useCallback(
+    async (position: { x: number; y: number; z: number }, normal: { x: number; y: number; z: number }, scale: number, modelId: string) => {
+      const ws = await ensureConnection();
+      if (!ws) return;
+      const msg: FacePickMessage = {
+        type: "face_pick",
+        position,
+        normal,
+        scale,
+        modelId,
+        session_id: sessionIdRef.current,
+      };
+      ws.send(JSON.stringify(msg));
+    },
+    [ensureConnection]
+  );
 
   const buildEnrichedMessage = useCallback((content: string): string => {
     if (firstMessageRef.current && lastCode) {
@@ -196,6 +237,19 @@ export function useCadChat() {
                 return;
               }
 
+              if (msg.type === "face_pick_result") {
+                const face: SelectedFace = {
+                  faceIndex: msg.faceIndex,
+                  description: msg.description || "",
+                  selector: msg.selector || "",
+                  confidence: msg.confidence || 0,
+                  matches: msg.matches,
+                  ambiguous: msg.ambiguous,
+                };
+                setSelectedFace(face);
+                return;
+              }
+
               if (msg.type === "done") {
                 done = true; clearTimeout(fallbackTimeout);
                 setStreamingText("");
@@ -252,6 +306,7 @@ export function useCadChat() {
                         if (data.step_url) setStepUrl(`${base}${String(data.step_url)}`);
                         if (data.stl_url) setStlUrl(`${base}${String(data.stl_url)}`);
                         if (data.code) setLastCode(String(data.code), {});
+                        if (data.model_id) setCurrentModelId(String(data.model_id));
                       }
                     } catch {
                       const response = String(r.response || "");
@@ -283,7 +338,7 @@ export function useCadChat() {
         autoSaveConversation();
       }
     },
-    [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, ensureConnection, buildEnrichedMessage, setComplexModalOpen]
+    [ addMessage, setProcessing, isProcessing, setGlbUrl, setStepUrl, setStlUrl, setLastCode, ensureConnection, buildEnrichedMessage, setComplexModalOpen, setCurrentModelId]
   );
 
   useEffect(() => {
@@ -308,5 +363,5 @@ export function useCadChat() {
     setProcessing(false);
   }, [resetSessionKey, setProcessing]);
 
-  return { messages, sendMessage, cancel, isProcessing, streamingText };
+  return { messages, sendMessage, cancel, isProcessing, streamingText, sendFacePick, wsRef };
 }

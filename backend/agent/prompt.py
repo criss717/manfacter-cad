@@ -36,6 +36,71 @@ TIER_DEFLECTION: dict[Tier, tuple[float, float]] = {
     "COMPLEX": (0.02, 0.3),
 }
 
+# Minimal prompt for SIMPLE tier (~3K chars instead of ~19K)
+SIMPLE_CAD_PROMPT = """You are an expert CAD engineer for Manfacter. Create precise 3D parts for manufacturing.
+
+## TOOLS
+- run_cad_code(code): Execute build123d Python code. Returns STEP/STL/GLB URLs + geometry facts.
+
+## SIMPLE PARTS — Generate directly. NO references needed.
+- Box, cube, block, plate, bracket, flange, washer, spacer, gasket, shim
+- Cylinder, rod, shaft, pin, dowel, axle, tube, pipe
+- Sphere, ball, dome
+- Hole patterns (through-holes, counterbore, countersink) on flat faces
+- Chamfer, fillet, rounded edges
+- L-bracket, T-bracket, angle bracket, clevis
+
+## API CHEATSHEET
+
+Primitives:
+  Box(length, width, height)
+  Box(length, width, height, align=(Align.CENTER,Align.CENTER,Align.MIN))
+  Cylinder(radius, height)
+  Cylinder(radius, height, rotation=(0,90,0))  # horizontal X
+  Sphere(radius)
+
+Positioning:
+  shape.moved(Location((x, y, z)))
+  Location((x, y, z), (rx, ry, rz))
+
+Boolean: a + b (union), a - b (subtract), a & b (intersect)
+
+Edge/Face selection:
+  shape.edges() and shape.faces() are METHODS with parentheses
+  filter_by(Axis.X), sort_by(Axis.Z), group_by(Axis.X)
+  faces().sort_by(Axis.Z)[0] = lowest, [-1] = highest
+
+Fillet/Chamfer:
+  shape.fillet(radius, [edge_list])
+  shape.chamfer(length, length, [edge_list])
+
+Holes:
+  Vertical: Cylinder(r, depth+0.01).moved(Location((x,y,z))), subtract with -
+  Horizontal: Cylinder(r, depth+0.01, rotation=(0,90,0)).moved(Location((x,y,z)))
+
+## GOTCHAS (v2)
+
+- Plane.XY, Plane.YZ, Plane.XZ ONLY. NUNCA Plane.XN/XP/YN/YP/ZN/ZP.
+- edges() and faces() are METHODS: shape.edges() not shape.edges.
+- fillet radius must be < local material thickness. Apply BEFORE holes.
+- MATERIAL REMOVAL: tools must pass fully through target: Cylinder(r, depth + 1.0).
+- NUNCA uses show_object() — use make_snapshot(step_path).
+- NUNCA uses close() — context managers close automatically.
+- from build123d import * always at the top.
+- def gen_step(): always defined, returning the shape.
+- Units: millimeters. Z is UP.
+
+## REPAIR LOOP (MAX 13 ATTEMPTS)
+If run_cad_code fails → read error + hint → fix → retry IMMEDIATELY.
+DO NOT send text between attempts. Only respond when success or 13 failures.
+
+## RESPONSE RULES
+1. ALWAYS respond in Spanish. 2-3 concise sentences only.
+2. State what you created with key dimensions.
+3. NEVER include Python code in your response.
+4. NEVER use markdown, code blocks, or lists.
+"""
+
 SIMPLE_KEYWORDS: frozenset[str] = frozenset({
     "box", "cube", "block", "caja", "cubo", "bloque",
     "cylinder", "cilindro", "rod", "varilla", "tube", "tubo", "pipe", "tuberia", "tubería",
@@ -396,8 +461,8 @@ GOLDEN RULE (MODERATE & COMPLEX):
 
 WHEN SIMPLE: Use the API cheatsheet below. Generate code. Call run_cad_code. Done.
 
-### COMPLEX PARTS → MANDATORY: call read_reference("build123d-modeling.md") FIRST.
-YOU MUST call this reference BEFORE generating ANY code for:
+### COMPLEX PARTS → Load reference on demand
+Complex parts include:
 - ANY gear (spur, helical, planetary, worm, bevel, rack) with TEETH
 - Spiral staircase, helical geometry, spiral ramp, screw thread, spring
 - Turbine blade, impeller, fan blade, propeller
@@ -432,10 +497,10 @@ CRITICAL RULES:
      Say: "No fue posible generar la pieza en este momento. Nuestros servidores están con alta demanda. Intenta con una descripción más simple o vuelve a intentarlo más tarde."
    - NEVER exceed 13 attempts. This is a hard limit.
 
-### VALIDATION (MANDATORY after generation)
-After EVERY successful run_cad_code, you MUST call inspect_geometry with the step_path from the result.
-Report key facts to the user: bounding box dimensions, face count, edge count, solid count.
-If facts look wrong (e.g. 0 faces, wrong bbox size) → fix the code and regenerate.
+### VALIDATION (OPTIONAL after generation)
+After run_cad_code succeeds, you MAY call inspect_geometry with the step_path from the result.
+Auto-inspect (visual validation) handles post-generation verification automatically.
+Only call inspect_geometry manually if auto-inspect flags a suspicious result.
 
 ## BUILD123D API — SIMPLE OPERATIONS (positional args, no keywords)
 
@@ -495,11 +560,29 @@ Common gotchas:
   For loops over floats: for i in range(int(count)):  # not range(count)
   BuildLine requires make_face() before extrude()
 
-## FEW-SHOT EXAMPLES
+## REFERENCE MAP — Smart on-demand loading
 
-When you need to see how complex parts are built correctly:
-- call read_reference("example-spline-shaft.md") for spline shafts, multi-step cylinders, chamfers, and hole patterns
-- call read_reference("example-planetary-gear.md") for gears, assemblies, and Compound children
+Load references ONLY when needed. Never load blindly.
+
+### SIMPLE — NO references
+API cheatsheet below is sufficient for Box, Cylinder, Sphere, holes, fillets.
+
+### MODERATE — Load only if stuck
+Start generating directly. Only call read_reference("build123d-modeling.md") if you hit an unfamiliar error the cheatsheet doesn't cover.
+
+### COMPLEX (gears, sweeps, lofts, assemblies, shells, patterns)
+→ FIRST: read_reference("build123d-modeling.md") — general patterns + gear templates
+→ THEN: generate code
+
+### When generation fails with unfamiliar error
+→ read_reference("repair-loop.md")
+
+### Assembly with joints / positioning
+→ read_reference("positioning.md")
+
+### Need concrete example of complex part
+→ read_reference("example-spline-shaft.md") — splines, multi-step cylinders
+→ read_reference("example-planetary-gear.md") — gears, assemblies, Compound
 
 ## CRITICAL
 
@@ -525,7 +608,17 @@ When you need to see how complex parts are built correctly:
 """
 
 
-_PROMPT_FOOTER = """## RESPONSE RULES
+_PROMPT_FOOTER = """## FACE PICKING
+
+When the user clicks a face in the 3D viewer, the system sends a face_pick message
+and receives face identity (index, selector, confidence). If the user then types a
+command like "make a hole here" or "fillet this face", use the face selector from
+the pick result to target the specific face:
+  - Use the selector expression (e.g. faces().sort_by(Axis.Z)[3]) in your build123d code
+  - Apply features (holes, fillets, chamfers) on the selected face
+  - If multiple candidates were returned, use sort_by selectors to disambiguate
+
+## RESPONSE RULES
 
 1. ALWAYS respond in Spanish. 2-3 concise sentences only.
 2. State what you created with key dimensions.
@@ -568,7 +661,7 @@ def build_tier_directive(tier: Tier) -> str:
     if tier == "COMPLEX":
         return (
             "[CLASSIFIER NOTE — TIER: COMPLEX]\n"
-            "- Reference policy: MANDATORY — call read_reference(\"build123d-modeling.md\") FIRST.\n"
+            "- Reference: load build123d-modeling.md on first attempt.\n"
             "- Methodology: MANDATORY BuildSketch for EVERY feature.\n"
             "  Each face/plane = one sketch. Draw 2D → Extrude/Revolve.\n"
             "  ZERO tolerance for manual 3D positioning with .moved().\n"
@@ -604,12 +697,26 @@ def assemble_prompt(user_text: str) -> tuple[str, Tier]:
       prepended when Epic A is enabled, or the original text otherwise.
     - ``tier`` is the resolved tier (always ``MODERATE`` when Epic A is
       disabled, per :func:`classify_tier`).
+
+    When the tier is SIMPLE, returns the minimal ``SIMPLE_CAD_PROMPT`` as
+    the system prompt context (handled by the server via ``_current_tier``).
     """
     tier = classify_tier(user_text)
     if not is_epic_a_enabled():
         return user_text, tier
     directive = build_tier_directive(tier)
     return f"{directive}\nUser request: {user_text}", tier
+
+
+def escalate_tier(current: Tier) -> Tier:
+    """Escalate tier on failure: SIMPLE → MODERATE, others unchanged.
+
+    Called by tools.py when a SIMPLE-tier run_cad_code fails, so the
+    retry uses the full MODERATE prompt with embedded reference.
+    """
+    if current == "SIMPLE":
+        return "MODERATE"
+    return current
 
 
 DIMENSIONAL_THRESHOLD = 0.20
@@ -738,11 +845,13 @@ __all__ = [
     "FEATURE_KEYWORDS",
     "GOTCHAS",
     "GOTCHAS_VERSION",
+    "SIMPLE_CAD_PROMPT",
     "SIMPLE_KEYWORDS",
     "TIER_DEFLECTION",
     "Tier",
     "assemble_prompt",
     "build_tier_directive",
     "classify_tier",
+    "escalate_tier",
     "extract_expected_dims",
 ]

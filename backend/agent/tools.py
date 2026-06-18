@@ -428,6 +428,10 @@ def run_cad_code(code: str) -> str:
 
     if not result["success"] and result.get("error"):
         output["hint"] = classify_cad_error(result["error"])
+        # Escalate SIMPLE → MODERATE on failure
+        if tier == "SIMPLE":
+            _current_tier.set("MODERATE")
+            print(f"[TOOLS] TIER ESCALATION: SIMPLE → MODERATE (session={session_id[:12]})")
 
     if _is_epic_c_enabled():
         output.pop("code", None)
@@ -690,6 +694,41 @@ def make_snapshot(step_path: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def pick_face_on_model(
+    position_x: float,
+    position_y: float,
+    position_z: float,
+    normal_x: float,
+    normal_y: float,
+    normal_z: float,
+    scale: float = 1000.0,
+    model_id: str = "",
+) -> str:
+    """Match a 3D click position + normal against OCP model faces.
+
+    Returns JSON with faceIndex, description, selector, confidence.
+    The position and normal come from the frontend Three.js raycaster.
+
+    If ``model_id`` is provided, it takes priority over the session lookup.
+    """
+    import json as _json
+    from cad_engine.generator import find_ocp_face
+
+    if not model_id:
+        session_id = _current_session_id.get()
+        model_id = _last_model.get(session_id, "")
+    if not model_id:
+        return _json.dumps({"error": "No model loaded in current session"})
+
+    result = find_ocp_face(
+        position=(position_x, position_y, position_z),
+        normal=(normal_x, normal_y, normal_z),
+        scale=scale,
+        model_id=model_id,
+    )
+    return _json.dumps(result)
+
+
 def make_snapshots(step_path: str) -> dict:
     """Render 5 canonical-view PNG screenshots of a generated model.
 
@@ -727,4 +766,4 @@ def make_snapshots(step_path: str) -> dict:
 
 
 # Tool definitions for the agent
-TOOLS = [run_cad_code, inspect_geometry, read_reference, list_outputs, make_snapshot, make_snapshots]
+TOOLS = [run_cad_code, inspect_geometry, read_reference, list_outputs, make_snapshot, make_snapshots, pick_face_on_model]

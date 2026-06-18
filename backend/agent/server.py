@@ -37,12 +37,13 @@ from websockets.asyncio.server import serve
 from google.adk import Agent, Runner
 from google.adk.sessions import InMemorySessionService
 from agent.feature_flags import is_epic_a_enabled
-from agent.prompt import CAD_AGENT_PROMPT, GOTCHAS_VERSION, assemble_prompt
+from agent.prompt import CAD_AGENT_PROMPT, SIMPLE_CAD_PROMPT, GOTCHAS_VERSION, assemble_prompt
 from agent.tools import (
     TOOLS,
     _attempt_counts,
     _current_session_id,
     _current_tier,
+    pick_face_on_model,
     release_session_resources,
     set_expected_dims,
     make_snapshots,
@@ -103,7 +104,7 @@ async def process_user_message(
             agent = Agent(
                 name="manfacter_cad",
                 model=model_name,
-                instruction=CAD_AGENT_PROMPT,
+                instruction=SIMPLE_CAD_PROMPT if tier == "SIMPLE" else CAD_AGENT_PROMPT,
                 tools=TOOLS,
             )
             runner = Runner(
@@ -233,6 +234,28 @@ async def agent_session(websocket):
         user_image = msg.get("image", None)
         client_sid = msg.get("session_id", session_id)
         provider   = msg.get("provider", "gemini")
+
+        # Handle face_pick messages
+        if msg.get("type") == "face_pick":
+            pos = msg.get("position", {})
+            nrm = msg.get("normal", {})
+            scale = msg.get("scale", 1000.0)
+            model_id = msg.get("modelId", "")
+            _current_session_id.set(client_sid)
+            try:
+                result = pick_face_on_model(
+                    pos.get("x", 0), pos.get("y", 0), pos.get("z", 0),
+                    nrm.get("x", 0), nrm.get("y", 0), nrm.get("z", 0),
+                    scale,
+                    model_id=model_id,
+                )
+                import json as _json
+                data = _json.loads(result)
+                response = {"type": "face_pick_result", **data}
+                await websocket.send(_json.dumps(response))
+            except Exception as e:
+                await websocket.send(json.dumps({"type": "face_pick_result", "error": str(e)}))
+            continue
 
         if not user_text and not user_image:
             if user_image:

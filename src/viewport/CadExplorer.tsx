@@ -6,6 +6,7 @@ import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { motion } from "framer-motion";
 import { useCadStore } from "@/store/cadStore";
+import { useCadChat, type FacePickMessage } from "@/chat/useCadChat";
 import ViewCube3D, { syncViewCube } from "./ViewCube3D";
 
 let _doZoom: (() => void) | null = null;
@@ -75,12 +76,115 @@ function GlbModel({ url, color }: { url: string; color: string }) {
   return scene ? <primitive object={scene} /> : null;
 }
 
+const CAD_TO_GLB_SCALE = 0.001;
+
+function FaceClickHandler({ wsRef }: { wsRef: React.RefObject<WebSocket | null> }) {
+  const { scene, camera, gl } = useThree();
+  const facePickerEnabled = useCadStore((s) => s.facePickerEnabled);
+  const setSelectedFace = useCadStore((s) => s.setSelectedFace);
+  const currentModelId = useCadStore((s) => s.currentModelId);
+
+  const prevMeshRef = useRef<THREE.Mesh | null>(null);
+  const prevEmissiveRef = useRef<THREE.Color | null>(null);
+
+  // Clear highlight on unmount
+  useEffect(() => {
+    return () => {
+      if (prevMeshRef.current && prevEmissiveRef.current) {
+        const mat = prevMeshRef.current.material as THREE.MeshStandardMaterial;
+        if (mat) mat.emissive.copy(prevEmissiveRef.current);
+      }
+    };
+  }, []);
+
+  // Clear highlight when picker is disabled
+  useEffect(() => {
+    if (!facePickerEnabled && prevMeshRef.current && prevEmissiveRef.current) {
+      const mat = prevMeshRef.current.material as THREE.MeshStandardMaterial;
+      if (mat) mat.emissive.copy(prevEmissiveRef.current);
+      prevMeshRef.current = null;
+      prevEmissiveRef.current = null;
+    }
+  }, [facePickerEnabled]);
+
+  useEffect(() => {
+    if (!facePickerEnabled) return;
+
+    const handleClick = (event: MouseEvent) => {
+      const rect = gl.domElement.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(scene.children, true);
+
+      if (intersects.length === 0) return;
+
+      const hit = intersects[0];
+      const mesh = hit.object as THREE.Mesh;
+      const faceIndex = hit.faceIndex ?? 0;
+
+      // Clear previous highlight
+      if (prevMeshRef.current && prevEmissiveRef.current) {
+        const prevMat = prevMeshRef.current.material as THREE.MeshStandardMaterial;
+        if (prevMat) prevMat.emissive.copy(prevEmissiveRef.current);
+      }
+
+      // Apply highlight
+      if (mesh.material) {
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        prevEmissiveRef.current = mat.emissive.clone();
+        prevMeshRef.current = mesh;
+        mat.emissive = new THREE.Color(0x44ff44);
+      }
+
+      // Send to backend via direct wsRef
+      const worldPos = hit.point;
+      const worldNormal = hit.face?.normal ?? new THREE.Vector3(0, 0, 1);
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+      const transformedNormal = worldNormal.clone().applyMatrix3(normalMatrix).normalize();
+
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN && currentModelId) {
+        const msg: FacePickMessage = {
+          type: "face_pick",
+          position: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
+          normal: { x: transformedNormal.x, y: transformedNormal.y, z: transformedNormal.z },
+          scale: 1 / CAD_TO_GLB_SCALE,
+          modelId: currentModelId,
+          session_id: "",
+        };
+        ws.send(JSON.stringify(msg));
+      }
+
+      // Optimistic update
+      setSelectedFace({
+        faceIndex,
+        description: `Face #${faceIndex}`,
+        selector: "",
+        confidence: 0,
+      });
+    };
+
+    gl.domElement.addEventListener("click", handleClick);
+    return () => gl.domElement.removeEventListener("click", handleClick);
+  }, [facePickerEnabled, scene, camera, gl, setSelectedFace, wsRef, currentModelId]);
+
+  return null;
+}
+
 export default function CadExplorer() {
   const glbUrl = useCadStore((s) => s.glbUrl);
   const modelColor = useCadStore((s) => s.modelColor);
   const sceneBackground = useCadStore((s) => s.sceneBackground);
   const viewportFocusKey = useCadStore((s) => s.viewportFocusKey);
   const focusViewport = useCadStore((s) => s.focusViewport);
+  const facePickerEnabled = useCadStore((s) => s.facePickerEnabled);
+  const setFacePickerEnabled = useCadStore((s) => s.setFacePickerEnabled);
+  const setSelectedFace = useCadStore((s) => s.setSelectedFace);
+  const { wsRef } = useCadChat();
   const prevGlbRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -98,6 +202,15 @@ export default function CadExplorer() {
   const handleFocus = useCallback(() => {
     focusViewport();
   }, [focusViewport]);
+
+  const handleToggleFacePicker = useCallback(() => {
+    if (facePickerEnabled) {
+      setFacePickerEnabled(false);
+      setSelectedFace(null);
+    } else {
+      setFacePickerEnabled(true);
+    }
+  }, [facePickerEnabled, setFacePickerEnabled, setSelectedFace]);
 
   return (
     <motion.div
@@ -124,6 +237,7 @@ export default function CadExplorer() {
           <Suspense fallback={null}>
             <GlbModel url={glbUrl} color={modelColor} />
             <AutoZoom />
+            <FaceClickHandler wsRef={wsRef} />
           </Suspense>
         )}
 
@@ -141,6 +255,21 @@ export default function CadExplorer() {
       {glbUrl && (
         <>
           <ViewCube3D />
+          <button
+            onClick={handleToggleFacePicker}
+            className={`absolute bottom-13 cursor-pointer right-32 z-10 w-8 h-8 rounded-lg backdrop-blur-sm border flex items-center justify-center transition-colors shadow-sm ${
+              facePickerEnabled
+                ? "bg-emerald-500/90 border-emerald-400 text-white"
+                : "bg-snow/90 border-silver-mist text-graphite hover:bg-snow"
+            }`}
+            title={facePickerEnabled ? "Desactivar selector de cara" : "Activar selector de cara"}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
+            </svg>
+          </button>
           <button
             onClick={handleFocus}
             className="absolute bottom-13 cursor-pointer right-23 z-10 w-8 h-8 rounded-lg bg-snow/90 backdrop-blur-sm border border-silver-mist flex items-center justify-center hover:bg-snow transition-colors shadow-sm"

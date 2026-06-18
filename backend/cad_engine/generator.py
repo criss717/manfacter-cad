@@ -609,12 +609,154 @@ def generate_cad(
         }
 
 
-__all__ = [
-    "MeshCache",
-    "OUTPUT_DIR",
-    "Tier",
-    "deflection_for_tier",
-    "generate_cad",
-    "get_shape_handle",
-    "release_shape_handle",
-]
+def find_ocp_face(
+    position: tuple[float, float, float],
+    normal: tuple[float, float, float],
+    scale: float,
+    model_id: str,
+) -> dict:
+    """Match a world-space hit point + normal against OCP faces.
+
+    Uses ``TopExp_Explorer`` + ``BRep_Tool.Triangulation`` to iterate
+    faces and find the closest match by weighted position (70%) and
+    normal (30%) distance.
+
+    When the best match is ambiguous (confidence < 0.5 or multiple faces
+    within 10% of the best score), returns top-3 candidates with
+    confidence scores so the LLM can disambiguate using ``sort_by``
+    selectors.
+
+    Args:
+        position: World-space hit point (x, y, z) from Three.js raycaster.
+        normal: World-space surface normal (nx, ny, nz) from Three.js raycaster.
+        scale: GLB-to-CAD scale factor (typically ``1 / 0.001 = 1000``).
+        model_id: Shape handle registered in ``_SHAPE_REGISTRY``.
+
+    Returns:
+        dict with ``faceIndex``, ``description``, ``selector``, ``confidence``,
+        ``matches``, and ``ambiguous``.
+    """
+    from OCP.BRep import BRep_Tool
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_REVERSED
+    from OCP.TopoDS import TopoDS
+    from OCP.gp import gp_Pnt
+
+    shape = _SHAPE_REGISTRY.get(model_id)
+    if shape is None:
+        return {"error": f"No shape found for model_id={model_id}"}
+
+    ocp_shape = _to_ocp_shape(shape)
+
+    # Convert GLB coords to CAD mm
+    hit = gp_Pnt(
+        position[0] * scale,
+        position[1] * scale,
+        position[2] * scale,
+    )
+    hit_normal = (normal[0], normal[1], normal[2])
+
+    # Collect scores for ALL faces
+    face_scores: list[dict] = []
+    face_idx = 0
+
+    explorer = TopExp_Explorer(ocp_shape, TopAbs_FACE)
+    while explorer.More():
+        face = TopoDS.Face_s(explorer.Current())
+        is_reversed = face.Orientation() == TopAbs_REVERSED
+        loc = face.Location()
+
+        try:
+            triangulation = BRep_Tool.Triangulation_s(face, loc)
+        except Exception:
+            triangulation = None
+
+        if triangulation is not None and triangulation.NbNodes() > 0:
+            trsf = loc.Transformation()
+
+            # Find closest node on this face
+            min_node_dist = float("inf")
+            closest_normal = (0.0, 0.0, 1.0)
+            nb_nodes = triangulation.NbNodes()
+
+            for i in range(1, nb_nodes + 1):
+                point = triangulation.Node(i).Transformed(trsf)
+                dx = float(point.X()) - hit.X()
+                dy = float(point.Y()) - hit.Y()
+                dz = float(point.Z()) - hit.Z()
+                dist = (dx * dx + dy * dy + dz * dz) ** 0.5
+                if dist < min_node_dist:
+                    min_node_dist = dist
+                    try:
+                        n = triangulation.Normal(i).Transformed(trsf)
+                        nx, ny, nz = float(n.X()), float(n.Y()), float(n.Z())
+                        if is_reversed:
+                            nx, ny, nz = -nx, -ny, -nz
+                        length = (nx * nx + ny * ny + nz * nz) ** 0.5
+                        if length > 1e-15:
+                            nx, ny, nz = nx / length, ny / length, nz / length
+                        closest_normal = (nx, ny, nz)
+                    except Exception:
+                        pass
+
+            # Weighted score: position 70%, normal 30%
+            normal_dot = (
+                closest_normal[0] * hit_normal[0]
+                + closest_normal[1] * hit_normal[1]
+                + closest_normal[2] * hit_normal[2]
+            )
+            # Normalize position distance by scale
+            norm_dist = min_node_dist / scale if scale > 0 else min_node_dist
+            score = 0.7 * norm_dist + 0.3 * (1.0 - abs(normal_dot))
+            confidence = max(0.0, 1.0 - score * 10)
+
+            face_scores.append({
+                "index": face_idx,
+                "score": score,
+                "confidence": round(confidence, 3),
+                "normal_dot": abs(normal_dot),
+            })
+
+        face_idx += 1
+        explorer.Next()
+
+    if not face_scores:
+        return {"error": "No faces found on model"}
+
+    # Sort by score (lower is better)
+    face_scores.sort(key=lambda f: f["score"])
+
+    best = face_scores[0]
+    best_score = best["score"]
+
+    # Determine ambiguity: confidence < 0.5 OR multiple faces within 10% of best score
+    ambiguous = best["confidence"] < 0.5
+    if not ambiguous and len(face_scores) > 1:
+        threshold = best_score * 1.10  # 10% tolerance
+        close_count = sum(1 for f in face_scores if f["score"] <= threshold)
+        ambiguous = close_count > 1
+
+    # Build top-3 candidates
+    top_candidates = face_scores[:3]
+    matches = [
+        {
+            "index": c["index"],
+            "confidence": c["confidence"],
+            "selector": f"faces().sort_by(Axis.Z)[{c['index']}]",
+        }
+        for c in top_candidates
+    ]
+
+    selector = f"faces().sort_by(Axis.Z)[{best['index']}]"
+
+    return {
+        "faceIndex": best["index"],
+        "description": f"Face #{best['index']} (normal dot={best['normal_dot']:.2f})",
+        "selector": selector,
+        "confidence": best["confidence"],
+        "matches": matches,
+        "ambiguous": ambiguous,
+    }
+
+
+
