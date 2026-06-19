@@ -41,6 +41,7 @@ interface CadStore {
   isProcessing: boolean;
   currentUnit: "mm" | "in";
   glbUrl: string | null;
+  facesGlbUrl: string | null;  // per-face GLB for face picking
   stepUrl: string | null;
   stlUrl: string | null;
   stepUrls: string[];
@@ -66,6 +67,7 @@ interface CadStore {
   updateShape: (id: string, updates: Partial<unknown>) => void;
   setShapes: (shapes: Record<string, unknown>) => void;
   setGlbUrl: (url: string | null) => void;
+  setFacesGlbUrl: (url: string | null) => void;
   setStepUrl: (url: string | null) => void;
   setStlUrl: (url: string | null) => void;
   addUrls: (glb: string | null, step: string | null, stl: string | null) => void;
@@ -99,6 +101,7 @@ export const useCadStore = create<CadStore>((set) => ({
   isProcessing: false,
   currentUnit: "mm",
   glbUrl: null,
+  facesGlbUrl: null,
   stepUrl: null,
   stlUrl: null,
   stepUrls: [],
@@ -128,6 +131,7 @@ export const useCadStore = create<CadStore>((set) => ({
   }),
   setShapes: (shapes) => set({ shapes }),
   setGlbUrl: (url) => set((s) => ({ glbUrl: url, viewportFocusKey: url ? s.viewportFocusKey + 1 : s.viewportFocusKey })),
+  setFacesGlbUrl: (url) => set({ facesGlbUrl: url }),
   setStepUrl: (url) => set({ stepUrl: url }),
   setStlUrl: (url) => set({ stlUrl: url }),
   addUrls: (glb, step, stl) => set((s) => ({
@@ -167,7 +171,8 @@ export const useCadStore = create<CadStore>((set) => ({
         timestamp: Date.now(),
       },
     ],
-    glbUrl: null,
+  glbUrl: null,
+  facesGlbUrl: null,
     stepUrl: null,
     stlUrl: null,
     stepUrls: [],

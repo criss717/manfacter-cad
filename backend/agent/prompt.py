@@ -365,6 +365,16 @@ NUNCA invertir el orden ni pasar un solo edge sin envolverlo en `[...]`.
 - Usa `.sort_by(Axis.Z)[-1]` para la cara/arista más alta, `[0]` para la más baja.
 - ERROR: `TypeError: 'Edge' object is not callable` → llamaste `.first()` que no existe
 
+### Plane — NO tiene .moved(), usa Location en el constructor
+- `Plane.XY.moved(...)` NO existe. Para offset: `Plane.XY.offset(distance)`
+- Para posicionar: `Plane(origin=(x,y,z), x_dir=(1,0,0), z_dir=(0,0,1))`
+- ERROR: `AttributeError: 'Plane' object has no attribute 'moved'`
+
+### Plane — NO acepta y_dir
+- El constructor de `Plane` acepta `origin`, `x_dir`, `z_dir`. NO `y_dir`.
+- Para plano en XY desplazado: `Plane.XY.offset(z)` o `Plane(origin=..., x_dir=..., z_dir=...)`
+- ERROR: `TypeError: Unexpected keyword arguments: y_dir`
+
 ### Vertex — NO tiene .pos(), usa .to_tuple() o .X/.Y/.Z
 - `Vertex` no tiene método `.pos()`. Usa `v.to_tuple()` → `(x, y, z)` o `v.X`, `v.Y`, `v.Z`.
 - ERROR: `AttributeError: 'Vertex' object has no attribute 'pos'`

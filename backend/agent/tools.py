@@ -304,6 +304,22 @@ def classify_cad_error(error: str) -> str:
                 "Consulta la seccion RadiusArc del bloque GOTCHAS."
             )
 
+        if "plane" in e and "has no attribute 'moved'" in e:
+            return (
+                "ERROR (Plane / GOTCHAS): Plane no tiene .moved(). "
+                "Usa Plane.XY.offset(distance) para desplazar, "
+                "o Plane(origin=..., x_dir=..., z_dir=...) para posicionar. "
+                "Consulta la seccion Plane del bloque GOTCHAS."
+            )
+
+        if "y_dir" in e:
+            return (
+                "ERROR (Plane / GOTCHAS): Plane no acepta 'y_dir'. "
+                "Usa origin, x_dir, z_dir. "
+                "Para plano en XY desplazado: Plane.XY.offset(z). "
+                "Consulta la seccion Plane del bloque GOTCHAS."
+            )
+
         if (
             "does not intersect" in e
             or "does not overlap" in e

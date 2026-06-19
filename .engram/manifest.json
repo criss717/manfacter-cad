@@ -16,6 +16,14 @@
       "sessions": 0,
       "memories": 1,
       "prompts": 1
+    },
+    {
+      "id": "fca13580",
+      "created_by": "criss",
+      "created_at": "2026-06-19T11:32:45Z",
+      "sessions": 0,
+      "memories": 12,
+      "prompts": 64
     }
   ]
 }

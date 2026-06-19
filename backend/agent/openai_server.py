@@ -104,17 +104,14 @@ DEFAULT_PROVIDER = "glm"
 # ── Image analysis pipeline ─────────────────────────────────────────────────────
 # Models that natively process images for CAD generation
 MODELS_WITH_VISION: set[str] = {
-    "gemini-pro", "minimax-m3-go", "kimi-go-2.7",
+    "gemini-pro", "minimax-m3-go", "kimi-go-2.7", "kimi-go",
 }
 
 # ── Google Gemini direct (REST API, no Zen) ────────────────────────────────────
-GEMINI_VISION_MODEL = "gemini-3.5-flash"  # best balance: fast, good vision, cheap
+GEMINI_VISION_MODEL = "gemini-3.1-pro-preview"  # best balance: fast, good vision, cheap
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
-# ── Image analysis fallback chain (tried in order) ─────────────────────────────
-# NOTE: kimi-go-2.7 (kimi-k2.7-code) is a CODE model with NO vision support.
-# It works great as a CAD provider but CANNOT analyze images.
-IMAGE_ANALYZER_CHAIN: list[str] = ["kimi-go"]  # kimi-k2.6 has vision
+# ── Image analysis fallback (tried in order in _analyze_image_with_fallback) ──
 
 # Legacy: primary analyzer kept for the chat fallback
 IMAGE_ANALYZER = "kimi-go"
@@ -1331,20 +1328,22 @@ async def _analyze_image_with_fallback(image_data: str, user_text: str) -> str |
         result = await _analyze_image_gemini(image_data, user_text, google_key)
         if result:
             return result
-        print("[OPENAI] IMAGE FALLBACK: Gemini failed, trying kimi-go-2.7...")
+        print("[OPENAI] IMAGE FALLBACK: Gemini failed, trying kimi-go...")
 
-    # 2. kimi-go-2.7 (kimi-k2.7-code, has vision, needs temperature=1.0)
-    result = await _analyze_image_chat_fallback(image_data, user_text, "kimi-go-2.7")
+    # 2. kimi-go (kimi-k2.6 via Go, proven vision, needs temp=0.2)
+    result = await _analyze_image_chat_fallback(image_data, user_text, "kimi-go")
     if result:
         return result
 
     # 3. minimax-m3-go (Anthropic Messages, has vision)
-    print("[OPENAI] IMAGE FALLBACK: kimi-go-2.7 failed, trying minimax-m3-go...")
+    print("[OPENAI] IMAGE FALLBACK: kimi-go failed, trying minimax-m3-go...")
     return await _analyze_image_anthropic(image_data, user_text)
 
 
 async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider: str) -> str | None:
-    """Analyze image with any chat-compatible provider using OpenAI client."""
+    """Analyze image with any chat-compatible provider via direct httpx."""
+    import httpx
+
     config = MODEL_CONFIGS.get(provider)
     if not config:
         return None
@@ -1354,7 +1353,8 @@ async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider
     api_key = os.environ.get("OPENCODE_API_KEY", "")
 
     media_type, b64 = _parse_image_data_url(image_data)
-    print(f"[OPENAI] IMAGE FALLBACK {provider}: image {media_type} {len(b64)} chars base64")
+    endpoint = f"{base_url}/chat/completions"
+    print(f"[OPENAI] IMAGE FALLBACK {provider}: image {media_type} {len(b64)} chars base64 → {endpoint}")
 
     messages = [
         {"role": "system", "content": IMAGE_ANALYSIS_PROMPT},
@@ -1364,20 +1364,50 @@ async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider
         ]},
     ]
 
-    temp = float(config.get("temperature", 0.1))
+    temp = float(config.get("temperature", 0.2))
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temp,
+        "max_tokens": 2048,
+    }
 
     try:
-        client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=300.0, max_retries=1)
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temp,
-            max_tokens=2048,
-        )
-        description = response.choices[0].message.content
-        if not description:
-            print(f"[OPENAI] IMAGE FALLBACK {provider}: empty content")
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(
+                endpoint,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                json=payload,
+            )
+            if resp.status_code >= 400:
+                body = resp.text[:300]
+                print(f"[OPENAI] IMAGE FALLBACK {provider} FAILED: HTTP {resp.status_code} — {body}")
+                return None
+            data = resp.json()
+
+        choices = data.get("choices", [])
+        if not choices:
+            print(f"[OPENAI] IMAGE FALLBACK {provider}: empty choices (keys: {list(data.keys())})")
             return None
+        msg = choices[0].get("message", {})
+        content = msg.get("content")
+        # kimi-k2.6 puts the analysis in `reasoning`, not `content` (thinking model)
+        if content is None and msg.get("reasoning"):
+            content = msg["reasoning"]
+        if isinstance(content, list):
+            description = " ".join(p.get("text","") for p in content if isinstance(p, dict) and p.get("type")=="text")
+        elif isinstance(content, str):
+            description = content
+        else:
+            print(f"[OPENAI] IMAGE FALLBACK {provider}: unexpected content type {type(content).__name__}")
+            return None
+        if not description:
+            print(f"[OPENAI] IMAGE FALLBACK {provider}: empty content (raw keys: {list(msg.keys())})")
+            return None
+
         print(f"[OPENAI] IMAGE FALLBACK {provider}: {description[:120]}...")
         return description
     except Exception as e:
@@ -1399,17 +1429,17 @@ async def _analyze_cad_with_fallback(
         result = await _analyze_cad_snapshots_gemini(png_paths, cad_facts, user_request, google_key)
         if result:
             return result
-        print("[OPENAI] CAD FALLBACK: Gemini failed, trying kimi-go-2.7...")
+        print("[OPENAI] CAD FALLBACK: Gemini failed, trying kimi-go...")
 
-    # 2. kimi-go-2.7 (has vision, temperature=1.0)
+    # 2. kimi-go (kimi-k2.6, has vision, temp=0.2)
     result = await _analyze_cad_snapshots(
-        png_paths, cad_facts, user_request, opencode_key, provider="kimi-go-2.7"
+        png_paths, cad_facts, user_request, opencode_key, provider="kimi-go"
     )
     if result:
         return result
 
     # 3. minimax-m3-go (Anthropic, has vision)
-    print("[OPENAI] CAD FALLBACK: kimi-go-2.7 failed, trying minimax-m3-go...")
+    print("[OPENAI] CAD FALLBACK: kimi-go failed, trying minimax-m3-go...")
     return await _analyze_cad_snapshots_anthropic(png_paths, cad_facts, user_request, opencode_key)
 
     print("[OPENAI] CAD FALLBACK: all inspectors failed")
@@ -1466,7 +1496,7 @@ async def _analyze_cad_snapshots(
 
     analyzer_model = analyzer_config["model"]
     analyzer_base = analyzer_config.get("base_url", ZEN_BASE)
-    temperature = float(analyzer_config.get("temperature", 0.1))
+    temperature = float(analyzer_config.get("temperature", 0.2))
     endpoint = f"{analyzer_base}/chat/completions"
 
     # Build image parts for all 5 views
@@ -1512,8 +1542,12 @@ async def _analyze_cad_snapshots(
                 print(f"[OPENAI] CAD SNAPSHOT ANALYSIS FAILED: HTTP {resp.status_code} — {body}")
                 return None
             data = resp.json()
-        description = data["choices"][0]["message"]["content"]
-        print(f"[OPENAI] CAD SNAPSHOT ANALYSIS: {description[:120] if description else '(empty)'}...")
+        msg = data["choices"][0].get("message", {})
+        description = msg.get("content")
+        # kimi-k2.6 puts analysis in `reasoning` (thinking model)
+        if description is None and msg.get("reasoning"):
+            description = msg["reasoning"]
+        print(f"[OPENAI] CAD SNAPSHOT ANALYSIS: {str(description)[:120] if description else '(empty)'}...")
     except Exception as e:
         print(f"[OPENAI] CAD SNAPSHOT ANALYSIS FAILED: {type(e).__name__}: {e}")
         return None
@@ -1751,7 +1785,7 @@ async def process_user_message(
         print(f"[OPENAI] IMAGE PIPELINE: analyzing with Gemini → fallback chain...")
         await websocket.send(json.dumps({
             "type": "agent_event",
-            "tool_call": {"name": "analyze_image", "args": {"engine": "gemini-3.5-flash"}}
+            "tool_call": {"name": "analyze_image", "args": {"gemini-3.1-pro-preview"}}
         }))
 
         description = await _analyze_image_with_fallback(image_data, user_text)

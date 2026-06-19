@@ -279,6 +279,91 @@ def _export_glb_from_cache(
     return output_path
 
 
+def _export_per_face_glb(shape: Any, output_path: Path) -> Path:
+    """Export a GLB with per-face named sub-meshes for face picking.
+
+    Each OCP face becomes a named child mesh in the GLB scene
+    (``face_0``, ``face_1``, ...). Three.js raycaster can then
+    identify individual faces by ``mesh.name``.
+    """
+    import trimesh
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.BRep import BRep_Tool
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_REVERSED
+    from OCP.TopoDS import TopoDS
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    ocp_shape = _to_ocp_shape(shape)
+
+    # Single mesh pass for all faces
+    mesh = BRepMesh_IncrementalMesh(ocp_shape, 0.05, False, 0.5, True)
+    mesh.Perform()
+
+    scene = trimesh.Scene()
+    face_index = 0
+
+    explorer = TopExp_Explorer(ocp_shape, TopAbs_FACE)
+    while explorer.More():
+        face = TopoDS.Face_s(explorer.Current())
+        loc = face.Location()
+
+        try:
+            triangulation = BRep_Tool.Triangulation_s(face, loc)
+        except Exception:
+            triangulation = None
+        if triangulation is None or triangulation.NbNodes() == 0:
+            explorer.Next()
+            continue
+
+        trsf = loc.Transformation()
+        nb_nodes = triangulation.NbNodes()
+        nb_triangles = triangulation.NbTriangles()
+
+        # Build per-face geometry
+        vertices: list[list[float]] = []
+        faces_list: list[list[int]] = []
+
+        for i in range(1, nb_nodes + 1):
+            pt = triangulation.Node(i).Transformed(trsf)
+            vertices.append([pt.X(), pt.Y(), pt.Z()])
+
+        for i in range(1, nb_triangles + 1):
+            tri = triangulation.Triangle(i)
+            n1, n2, n3 = tri.Value(1), tri.Value(2), tri.Value(3)
+            # Flip winding if face is reversed
+            if face.Orientation() == TopAbs_REVERSED:
+                faces_list.append([n1 - 1, n3 - 1, n2 - 1])
+            else:
+                faces_list.append([n1 - 1, n2 - 1, n3 - 1])
+
+        if not vertices or not faces_list:
+            explorer.Next()
+            continue
+
+        tri_mesh = trimesh.Trimesh(
+            vertices=vertices,
+            faces=faces_list,
+            process=False,
+        )
+        scene.add_geometry(
+            tri_mesh,
+            node_name=f"face_{face_index}",
+            geom_name=f"face_{face_index}",
+        )
+        face_index += 1
+        explorer.Next()
+
+    if face_index == 0:
+        raise RuntimeError("No faces with valid triangulation for per-face GLB")
+
+    payload = scene.export(file_type="glb")
+    output_path.write_bytes(payload)
+    return output_path
+
+
 def _extract_trimesh(shape: Any) -> "trimesh.Trimesh | None":  # noqa: F821
     """Legacy GLB mesh extractor used when Epic B is disabled."""
     import trimesh
@@ -469,6 +554,7 @@ def generate_cad(
 
         stl_path: Path | None = output_dir / f"{mid}.stl"
         glb_path: Path | None = output_dir / f"{mid}.glb"
+        faces_glb_path: Path | None = None
         facts: dict | None = None
         shape_handle: str | None = None
 
@@ -513,6 +599,18 @@ def generate_cad(
                     glb_path = None
             t_par = time.time() - t3
             print(f"[CAD] STL+GLB paralelo en {t_par:.2f}s")
+
+            # Per-face GLB for face picking
+            faces_glb_path: Path | None = output_dir / f"{mid}_faces.glb"
+            try:
+                print("[CAD] Exportando GLB per-face (face picking)...")
+                t_faces = time.time()
+                _export_per_face_glb(shape, faces_glb_path)
+                faces_size_kb = faces_glb_path.stat().st_size / 1024
+                print(f"[CAD] Faces GLB OK ({faces_size_kb:.0f} KB) en {time.time() - t_faces:.2f}s")
+            except Exception as fe:
+                print(f"[CAD] Faces GLB FAIL: {fe}")
+                faces_glb_path = None
 
             shape_handle = mid
             _SHAPE_REGISTRY[shape_handle] = shape
@@ -586,6 +684,7 @@ def generate_cad(
             "step_url": f"/output/{mid}/{mid}.step",
             "stl_url": f"/output/{mid}/{mid}.stl" if stl_path else None,
             "glb_url": f"/output/{mid}/{mid}.glb" if glb_path else None,
+            "faces_glb_url": f"/output/{mid}/{mid}_faces.glb" if faces_glb_path else None,
             "facts": facts,
             "shape_handle": shape_handle,
         }

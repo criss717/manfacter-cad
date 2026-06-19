@@ -76,6 +76,7 @@ export function useCadChat() {
   const setProcessing = useCadStore((s) => s.setProcessing);
   const isProcessing = useCadStore((s) => s.isProcessing);
   const setGlbUrl = useCadStore((s) => s.setGlbUrl);
+  const setFacesGlbUrl = useCadStore((s) => s.setFacesGlbUrl);
   const setStepUrl = useCadStore((s) => s.setStepUrl);
   const setStlUrl = useCadStore((s) => s.setStlUrl);
   const setLastCode = useCadStore((s) => s.setLastCode);
@@ -303,6 +304,7 @@ export function useCadChat() {
                         setStreamingText("Geometria generada correctamente!");
                         const base = getBackendUrl();
                         if (data.glb_url) setGlbUrl(`${base}${String(data.glb_url)}`);
+                        if (data.faces_glb_url) setFacesGlbUrl(`${base}${String(data.faces_glb_url)}`);
                         if (data.step_url) setStepUrl(`${base}${String(data.step_url)}`);
                         if (data.stl_url) setStlUrl(`${base}${String(data.stl_url)}`);
                         if (data.code) setLastCode(String(data.code), {});

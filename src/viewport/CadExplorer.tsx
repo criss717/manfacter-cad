@@ -124,7 +124,12 @@ function FaceClickHandler({ wsRef }: { wsRef: React.RefObject<WebSocket | null> 
 
       const hit = intersects[0];
       const mesh = hit.object as THREE.Mesh;
-      const faceIndex = hit.faceIndex ?? 0;
+
+      // Extract face index from mesh name (e.g. "face_3" → 3)
+      const faceFromName = mesh.name.startsWith("face_") 
+        ? parseInt(mesh.name.replace("face_", ""), 10) 
+        : -1;
+      const faceIndex = faceFromName >= 0 ? faceFromName : (hit.faceIndex ?? 0);
 
       // Clear previous highlight
       if (prevMeshRef.current && prevEmissiveRef.current) {
@@ -132,7 +137,7 @@ function FaceClickHandler({ wsRef }: { wsRef: React.RefObject<WebSocket | null> 
         if (prevMat) prevMat.emissive.copy(prevEmissiveRef.current);
       }
 
-      // Apply highlight
+      // Apply highlight to the clicked face mesh
       if (mesh.material) {
         const mat = mesh.material as THREE.MeshStandardMaterial;
         prevEmissiveRef.current = mat.emissive.clone();
@@ -159,12 +164,12 @@ function FaceClickHandler({ wsRef }: { wsRef: React.RefObject<WebSocket | null> 
         ws.send(JSON.stringify(msg));
       }
 
-      // Optimistic update
+      // Optimistic update with face name
       setSelectedFace({
         faceIndex,
-        description: `Face #${faceIndex}`,
+        description: faceFromName >= 0 ? `Cara ${faceFromName}` : `Face #${faceIndex}`,
         selector: "",
-        confidence: 0,
+        confidence: faceFromName >= 0 ? 1.0 : 0.5,
       });
     };
 
@@ -177,6 +182,7 @@ function FaceClickHandler({ wsRef }: { wsRef: React.RefObject<WebSocket | null> 
 
 export default function CadExplorer() {
   const glbUrl = useCadStore((s) => s.glbUrl);
+  const facesGlbUrl = useCadStore((s) => s.facesGlbUrl);
   const modelColor = useCadStore((s) => s.modelColor);
   const sceneBackground = useCadStore((s) => s.sceneBackground);
   const viewportFocusKey = useCadStore((s) => s.viewportFocusKey);
@@ -186,6 +192,9 @@ export default function CadExplorer() {
   const setSelectedFace = useCadStore((s) => s.setSelectedFace);
   const { wsRef } = useCadChat();
   const prevGlbRef = useRef<string | null>(null);
+
+  // Use per-face GLB when face picking is available
+  const activeGlbUrl = facePickerEnabled && facesGlbUrl ? facesGlbUrl : glbUrl;
 
   useEffect(() => {
     triggerViewportZoom();
@@ -233,9 +242,9 @@ export default function CadExplorer() {
 
         <Environment preset="studio" background={false} />
 
-        {glbUrl && (
+        {activeGlbUrl && (
           <Suspense fallback={null}>
-            <GlbModel url={glbUrl} color={modelColor} />
+            <GlbModel url={activeGlbUrl} color={modelColor} />
             <AutoZoom />
             <FaceClickHandler wsRef={wsRef} />
           </Suspense>
