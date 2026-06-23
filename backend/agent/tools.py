@@ -329,6 +329,26 @@ def classify_cad_error(error: str) -> str:
                 "Consulta la seccion max_fillet del bloque GOTCHAS."
             )
 
+        if "show_object" in e and "is not defined" in e:
+            return (
+                "ERROR (show_object / GOTCHAS): show_object() NO existe en "
+                "build123d. Es una funcion de CadQuery/CQ-editor. "
+                "En build123d el resultado de gen_step() es el objeto "
+                "que se retorna, no se muestra con show_object(). "
+                "Elimina la linea show_object(). "
+                "El script debe definir gen_step() -> Part y retornarlo."
+            )
+
+        if "topods::face" in e or "type mismatch" in e.lower() and "face" in e.lower():
+            return (
+                "ERROR (BuildSketch / GOTCHAS): make_face() fallo porque "
+                "los edges no forman una cara valida. No uses make_face() "
+                "manualmente. Usa el patron 'with BuildSketch():' seguido "
+                "de primitivas 2D y luego extrude(). "
+                "Ej: with BuildSketch(): Rectangle(100,50); result = extrude(amount=10). "
+                "NUNCA intentes construir Face manualmente con Wire.combine()."
+            )
+
         if (
             "does not intersect" in e
             or "does not overlap" in e
@@ -393,6 +413,13 @@ def classify_cad_error(error: str) -> str:
         return "ERROR: Polyline solo funciona dentro de BuildLine, no BuildSketch. Patron: with BuildLine(): Polyline(...)."
     if "sweep" in e or "loft" in e or "revolve" in e:
         return "ERROR en sweep/loft/revolve. Verifica que el perfil y path/trayectoria sean validos. El perfil debe ser una Face para sweep."
+    if "face or sketch must be provided" in e:
+        return (
+            "ERROR (BuildSketch / GOTCHAS): extrude() necesita un contexto "
+            "BuildSketch activo o una Face explicita. "
+            "Patron correcto: with BuildSketch(): Rectangle(100,50); result = extrude(amount=10). "
+            "No llames extrude() fuera de BuildSketch sin pasarle una Face."
+        )
     if "indexerror" in e:
         return "ERROR: IndexError: list index out of range. El filtro de aristas/caras devolvio lista vacia. Revisa coordenadas y eje de filtrado, usa tolerancias amplias con filter_by_position."
     return f"ERROR: {error}. Consulta las referencias para la API correcta y corrige."

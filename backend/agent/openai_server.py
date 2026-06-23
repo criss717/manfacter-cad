@@ -1403,9 +1403,9 @@ async def _analyze_image_with_fallback(image_data: str, user_text: str) -> str |
         print("[OPENAI] IMAGE FALLBACK: Gemini failed, trying nvidia-cosmos...")
 
     # 2. nvidia-cosmos (Nemotron omni, multimodal, free tier)
-    result = await _analyze_image_chat_fallback(image_data, user_text, "nvidia-cosmos")
-    if result:
-        return result
+    # result = await _analyze_image_chat_fallback(image_data, user_text, "nvidia-cosmos")
+    # if result:
+    #     return result
 
     # 3. kimi-go (kimi-k2.6)
     print("[OPENAI] IMAGE FALLBACK: nvidia failed, trying kimi-go...")
