@@ -1317,6 +1317,72 @@ async def _analyze_cad_snapshots_gemini(
         return None
 
 
+async def _analyze_cad_snapshots_gemini(
+    png_paths: list[Path],
+    cad_facts: str,
+    user_request: str,
+    api_key: str,
+) -> str | None:
+    """Inspect CAD snapshots with Google Gemini REST API."""
+    import httpx
+    import base64
+
+    endpoint = f"{GEMINI_BASE_URL}/models/{GEMINI_VISION_MODEL}:generateContent?key={api_key}"
+
+    view_names = {
+        "front": "frontal", "back": "posterior", "left": "izquierda",
+        "right": "derecha", "bottom": "inferior",
+    }
+    parts: list[dict] = []
+    for png in png_paths:
+        b64 = base64.b64encode(png.read_bytes()).decode()
+        stem = png.stem
+        view_key = stem.replace("view_", "")
+        label = view_names.get(view_key, view_key)
+        parts.append({"text": f"\n--- Vista {label.upper()} ---"})
+        parts.append({"inlineData": {"mimeType": "image/png", "data": b64}})
+
+    payload = {
+        "systemInstruction": {
+            "parts": [{"text": CAD_INSPECTION_PROMPT}],
+        },
+        "contents": [{
+            "parts": [
+                {"text": f"Inspecciona esta pieza CAD.\n\nDatos geométricos: {cad_facts}\n\nPetición original: {user_request}"},
+                *parts,
+            ],
+        }],
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                endpoint,
+                headers={"Content-Type": "application/json"},
+                json=payload,
+            )
+            if resp.status_code >= 400:
+                body = resp.text[:300]
+                print(f"[OPENAI] GEMINI CAD SNAPSHOT FAILED: HTTP {resp.status_code} — {body}")
+                return None
+            data = resp.json()
+
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return None
+
+        parts_out = candidates[0].get("content", {}).get("parts", [])
+        text = " ".join(p.get("text", "") for p in parts_out if "text" in p)
+        if not text:
+            return None
+
+        print(f"[OPENAI] GEMINI CAD SNAPSHOT: {text[:120]}...")
+        return text
+    except Exception as e:
+        print(f"[OPENAI] GEMINI CAD SNAPSHOT FAILED: {type(e).__name__}: {e}")
+        return None
+
+
 # ── Fallback chain helpers ──────────────────────────────────────────────────────
 
 async def _analyze_image_with_fallback(image_data: str, user_text: str) -> str | None:
@@ -1785,7 +1851,7 @@ async def process_user_message(
         print(f"[OPENAI] IMAGE PIPELINE: analyzing with Gemini → fallback chain...")
         await websocket.send(json.dumps({
             "type": "agent_event",
-            "tool_call": {"name": "analyze_image", "args": {"gemini-3.1-pro-preview"}}
+            "tool_call": {"name": "analyze_image", "args": {"engine": "gemini-3.1-pro-preview"}}
         }))
 
         description = await _analyze_image_with_fallback(image_data, user_text)
