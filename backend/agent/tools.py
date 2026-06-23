@@ -320,6 +320,15 @@ def classify_cad_error(error: str) -> str:
                 "Consulta la seccion Plane del bloque GOTCHAS."
             )
 
+        if "edge' object is not iterable" in e:
+            return (
+                "ERROR (max_fillet / GOTCHAS): max_fillet() y fillet() "
+                "esperan una LISTA de edges. "
+                "Usa: max_fillet([edge]) NO max_fillet(edge). "
+                "Envuelve siempre los edges en []. "
+                "Consulta la seccion max_fillet del bloque GOTCHAS."
+            )
+
         if (
             "does not intersect" in e
             or "does not overlap" in e

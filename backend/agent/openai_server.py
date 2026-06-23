@@ -44,6 +44,9 @@ if _env_file.exists():
 if not os.environ.get("GOOGLE_API_KEY"):
     os.environ["GOOGLE_API_KEY"] = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "")
 
+# NVIDIA API key
+_NVIDIA_KEY = os.environ.get("NVIDIA_API_KEY", "")
+
 import websockets
 from websockets.asyncio.server import serve
 from openai import AsyncOpenAI
@@ -95,8 +98,11 @@ MODEL_CONFIGS: dict[str, dict] = {
     "kimi-go":            {"model": "kimi-k2.6",         "api": "chat",     "base_url": ZEN_GO_BASE},
     "kimi-go-2.7":        {"model": "kimi-k2.7-code",          "api": "chat",     "base_url": ZEN_GO_BASE, "temperature": 1.0},
     "glm-go":             {"model": "glm-5.1",           "api": "chat",     "base_url": ZEN_GO_BASE},
+    "glm5.2-go":          {"model": "glm-5.2",           "api": "chat",     "base_url": ZEN_GO_BASE},
     "qwen3.7-max-go":     {"model": "qwen3.7-max",       "api": "messages", "base_url": ZEN_GO_BASE},
     "minimax-m3-go":      {"model": "minimax-m3",        "api": "messages", "base_url": ZEN_GO_BASE},
+    # ── NVIDIA (free tier, OpenAI-compatible, physics/geometry expert) ─────
+    "nvidia-cosmos":      {"model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "api": "chat", "base_url": "https://integrate.api.nvidia.com/v1", "api_key_env": "NVIDIA_API_KEY", "auth_header": "Bearer"},
 }
 
 DEFAULT_PROVIDER = "glm"
@@ -105,6 +111,7 @@ DEFAULT_PROVIDER = "glm"
 # Models that natively process images for CAD generation
 MODELS_WITH_VISION: set[str] = {
     "gemini-pro", "minimax-m3-go", "kimi-go-2.7", "kimi-go",
+    "nvidia-cosmos",  # multimodal, physics/geometry expert
 }
 
 # ── Google Gemini direct (REST API, no Zen) ────────────────────────────────────
@@ -114,7 +121,7 @@ GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 # ── Image analysis fallback (tried in order in _analyze_image_with_fallback) ──
 
 # Legacy: primary analyzer kept for the chat fallback
-IMAGE_ANALYZER = "kimi-go"
+IMAGE_ANALYZER = "kimi-go-2.7"  # best CAD reasoning, but slower than Gemini
 
 # Second analyzer for dual-analysis consensus (Anthropic /messages format) — DEPRECATED, kept for fallback
 IMAGE_ANALYZER_B = "minimax-m3-go"
@@ -834,6 +841,10 @@ async def _run_chat(
     """OpenAI-compatible chat/completions WITH streaming (minimax, glm, kimi, deepseek, GO)."""
     client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=300.0, max_retries=2)
 
+    _max_tokens = 16384
+    _length_retried = False
+    _chamfer_fails = 0
+
     for _step in range(20):
         stream = None
         for attempt in range(3):
@@ -844,6 +855,7 @@ async def _run_chat(
                     tools=TOOLS,
                     tool_choice="auto",
                     temperature=temperature,
+                    max_tokens=_max_tokens,
                     stream=True,
                 )
                 break
@@ -891,6 +903,16 @@ async def _run_chat(
 
         print(f"[OPENAI] finish={finish_reason}, tool_calls={len(current_tool_calls)}")
 
+        # Retry with higher max_tokens if response was truncated before forming a tool call
+        if finish_reason == "length" and not current_tool_calls and not _length_retried:
+            _length_retried = True
+            _max_tokens = 24576
+            print(f"[OPENAI] finish=length, retrying with max_tokens={_max_tokens}...")
+            continue
+
+        # Reset length retry flag for next turn (only keep if it succeeded)
+        _length_retried = False
+
         if not current_tool_calls:
             if assistant_text:
                 messages.append({"role": "assistant", "content": assistant_text})
@@ -930,6 +952,30 @@ async def _run_chat(
             except Exception as e:
                 result = json.dumps({"error": str(e)})
                 print(f"[OPENAI] RESULT: {name} FAIL: {e}")
+
+            # Circuit breaker: chamfer/fillet death loops
+            if name == "run_cad_code":
+                try:
+                    rj = json.loads(result) if isinstance(result, str) else {}
+                    err = (rj.get("error") or "").lower()
+                    if not rj.get("ok") and ("chamfer" in err or "fillet" in err):
+                        _chamfer_fails += 1
+                        if _chamfer_fails >= 3:
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    "SYSTEM NOTE: The chamfer/fillet operation has failed 3 times. "
+                                    "The selected edges are not suitable for chamfer/fillet. "
+                                    "STOP all chamfer/fillet attempts. Complete the part WITHOUT chamfers. "
+                                    "A working part without chamfers is better than repeated failures."
+                                ),
+                            })
+                            _chamfer_fails = 0
+                            print(f"[OPENAI] CIRCUIT BREAKER: chamfer/fillet skipped after 3 failures")
+                    else:
+                        _chamfer_fails = 0
+                except Exception:
+                    pass
 
             await websocket.send(json.dumps({
                 "type": "agent_event",
@@ -975,6 +1021,8 @@ async def _run_messages(
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
     }
+
+    _chamfer_fails = 0
 
     for _step in range(20):
         system, anthropic_msgs = _to_anthropic(messages)
@@ -1059,6 +1107,30 @@ async def _run_messages(
                 result = json.dumps({"error": str(e)})
                 print(f"[OPENAI] RESULT: {b['name']} FAIL: {e}")
 
+            # Circuit breaker: chamfer/fillet death loops
+            if b["name"] == "run_cad_code":
+                try:
+                    rj = json.loads(result) if isinstance(result, str) else {}
+                    err = (rj.get("error") or "").lower()
+                    if not rj.get("ok") and ("chamfer" in err or "fillet" in err):
+                        _chamfer_fails += 1
+                        if _chamfer_fails >= 3:
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    "SYSTEM NOTE: The chamfer/fillet operation has failed 3 times. "
+                                    "The selected edges are not suitable for chamfer/fillet. "
+                                    "STOP all chamfer/fillet attempts. Complete the part WITHOUT chamfers. "
+                                    "A working part without chamfers is better than repeated failures."
+                                ),
+                            })
+                            _chamfer_fails = 0
+                            print(f"[OPENAI] CIRCUIT BREAKER: chamfer/fillet skipped after 3 failures")
+                    else:
+                        _chamfer_fails = 0
+                except Exception:
+                    pass
+
             await websocket.send(json.dumps({
                 "type": "agent_event",
                 "tool_result": {
@@ -1116,7 +1188,7 @@ async def _analyze_image(image_data: str, user_text: str) -> str | None:
         "model": analyzer_model,
         "messages": messages,
         "temperature": 0.1,
-        "max_tokens": 2048,
+        "max_tokens": 8192,
     }
 
     try:
@@ -1173,7 +1245,7 @@ async def _analyze_image_anthropic(image_data: str, user_text: str) -> str | Non
                 ],
             },
         ],
-        "max_tokens": 2048,
+        "max_tokens": 8192,
     }
 
     try:
@@ -1328,14 +1400,20 @@ async def _analyze_image_with_fallback(image_data: str, user_text: str) -> str |
         result = await _analyze_image_gemini(image_data, user_text, google_key)
         if result:
             return result
-        print("[OPENAI] IMAGE FALLBACK: Gemini failed, trying kimi-go...")
+        print("[OPENAI] IMAGE FALLBACK: Gemini failed, trying nvidia-cosmos...")
 
-    # 2. kimi-go (kimi-k2.6 via Go, proven vision, needs temp=0.2)
+    # 2. nvidia-cosmos (Nemotron omni, multimodal, free tier)
+    result = await _analyze_image_chat_fallback(image_data, user_text, "nvidia-cosmos")
+    if result:
+        return result
+
+    # 3. kimi-go (kimi-k2.6)
+    print("[OPENAI] IMAGE FALLBACK: nvidia failed, trying kimi-go...")
     result = await _analyze_image_chat_fallback(image_data, user_text, "kimi-go")
     if result:
         return result
 
-    # 3. minimax-m3-go (Anthropic Messages, has vision)
+    # 4. minimax-m3-go
     print("[OPENAI] IMAGE FALLBACK: kimi-go failed, trying minimax-m3-go...")
     return await _analyze_image_anthropic(image_data, user_text)
 
@@ -1350,7 +1428,8 @@ async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider
 
     model = config["model"]
     base_url = config.get("base_url", ZEN_BASE)
-    api_key = os.environ.get("OPENCODE_API_KEY", "")
+    api_key_env = config.get("api_key_env", "OPENCODE_API_KEY")
+    api_key = os.environ.get(api_key_env, "")
 
     media_type, b64 = _parse_image_data_url(image_data)
     endpoint = f"{base_url}/chat/completions"
@@ -1369,7 +1448,7 @@ async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider
         "model": model,
         "messages": messages,
         "temperature": temp,
-        "max_tokens": 2048,
+        "max_tokens": 8192,
     }
 
     try:
@@ -1394,9 +1473,10 @@ async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider
             return None
         msg = choices[0].get("message", {})
         content = msg.get("content")
-        # kimi-k2.6 puts the analysis in `reasoning`, not `content` (thinking model)
-        if content is None and msg.get("reasoning"):
-            content = msg["reasoning"]
+        # kimi + NVIDIA models put real analysis in `reasoning` (thinking models)
+        reasoning = msg.get("reasoning")
+        if reasoning and (content is None or (isinstance(reasoning, str) and isinstance(content, str) and len(reasoning) > len(content))):
+            content = reasoning
         if isinstance(content, list):
             description = " ".join(p.get("text","") for p in content if isinstance(p, dict) and p.get("type")=="text")
         elif isinstance(content, str):
@@ -1418,18 +1498,18 @@ async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider
 async def _analyze_cad_with_fallback(
     png_paths: list[Path],
     cad_facts: str,
-    user_request: str,
+    user_request: str,   
 ) -> str | None:
     """Inspect CAD snapshots: Gemini → kimi-go."""
     google_key = os.environ.get("GOOGLE_API_KEY", "")
-    opencode_key = os.environ.get("OPENCODE_API_KEY", "")
+    opencode_key = os.environ.get("OPENCODE_API_KEY", "")   
 
     # 1. Gemini
-    if google_key:
-        result = await _analyze_cad_snapshots_gemini(png_paths, cad_facts, user_request, google_key)
-        if result:
-            return result
-        print("[OPENAI] CAD FALLBACK: Gemini failed, trying kimi-go...")
+    # if google_key:
+    #     result = await _analyze_cad_snapshots_gemini(png_paths, cad_facts, user_request, google_key)
+    #     if result:
+    #         return result
+    #     print("[OPENAI] CAD FALLBACK: Gemini failed, trying kimi-go...")
 
     # 2. kimi-go (kimi-k2.6, has vision, temp=0.2)
     result = await _analyze_cad_snapshots(
@@ -1531,7 +1611,7 @@ async def _analyze_cad_snapshots(
         "model": analyzer_model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": 1024,
+        "max_tokens": 2048,
     }
 
     try:
@@ -1544,9 +1624,10 @@ async def _analyze_cad_snapshots(
             data = resp.json()
         msg = data["choices"][0].get("message", {})
         description = msg.get("content")
-        # kimi-k2.6 puts analysis in `reasoning` (thinking model)
-        if description is None and msg.get("reasoning"):
-            description = msg["reasoning"]
+        # kimi + NVIDIA models put analysis in `reasoning`
+        reasoning = msg.get("reasoning")
+        if reasoning and (description is None or (isinstance(reasoning, str) and isinstance(description, str) and len(reasoning) > len(description))):
+            description = reasoning
         print(f"[OPENAI] CAD SNAPSHOT ANALYSIS: {str(description)[:120] if description else '(empty)'}...")
     except Exception as e:
         print(f"[OPENAI] CAD SNAPSHOT ANALYSIS FAILED: {type(e).__name__}: {e}")
@@ -1605,7 +1686,7 @@ async def _analyze_cad_snapshots_anthropic(
                 ],
             },
         ],
-        "max_tokens": 1024,
+        "max_tokens": 2048,
     }
 
     try:
@@ -1768,7 +1849,9 @@ async def process_user_message(
     config  = MODEL_CONFIGS[provider]
     model   = config["model"]
     api     = config["api"]
-    api_key = os.environ.get("OPENCODE_API_KEY", "")
+    # Use model-specific API key if configured, else OpenCode key
+    api_key_env = config.get("api_key_env", "OPENCODE_API_KEY")
+    api_key = os.environ.get(api_key_env, "")
 
     # Tier classification + prompt augmentation (mirrors server.py)
     augmented_text, tier = assemble_prompt(user_text)
@@ -1785,7 +1868,7 @@ async def process_user_message(
         print(f"[OPENAI] IMAGE PIPELINE: analyzing with Gemini → fallback chain...")
         await websocket.send(json.dumps({
             "type": "agent_event",
-            "tool_call": {"name": "analyze_image", "args": {"gemini-3.1-pro-preview"}}
+            "tool_call": {"name": "analyze_image", "args": {"engine": "gemini-3.1-pro-preview"}}
         }))
 
         description = await _analyze_image_with_fallback(image_data, user_text)
@@ -1825,6 +1908,15 @@ async def process_user_message(
         target_prompt = SIMPLE_CAD_PROMPT if tier == "SIMPLE" else CAD_AGENT_PROMPT
         if current_system != target_prompt and SESSIONS[session_id]:
             SESSIONS[session_id][0]["content"] = target_prompt
+
+    # Prune session if it grew too large from repair loops
+    # Keep system prompt + last N messages to preserve repair context
+    session_msgs = SESSIONS[session_id]
+    if len(session_msgs) > 16:
+        system_msg = session_msgs[0]
+        keep_last = 6  # 3 full exchanges (user → assistant → tool → assistant)
+        SESSIONS[session_id] = [system_msg] + session_msgs[-keep_last:]
+        print(f"[OPENAI] Session pruned ({len(session_msgs)} → {1 + keep_last}) to prevent context bloat")
     SESSION_LAST_ACCESS[session_id] = time.time()
 
     expected_dims = set_expected_dims(session_id, user_text)

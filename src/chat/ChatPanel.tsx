@@ -44,7 +44,9 @@ const PROVIDERS = [
   { id: "kimi-go", label: "Kimi K2.6 [GO]", disabled: false },
   { id: "kimi-go-2.7", label: "Kimi 2.7 [GO]", disabled: false },
   { id: "glm-go", label: "GLM 5.1 [GO]", disabled: false },
+  { id: "glm5.2-go", label: "GLM 5.2 [GO]", disabled: false },
   { id: "minimax-m3-go", label: "MiniMax M3 [GO]", disabled: false },
+  { id: "nvidia-cosmos", label: "NVIDIA Cosmos [NVIDIA]", disabled: false },
   {
     id: "deepseek-v4-pro-sdk",
     label: "DeepSeek V4 Pro [SDK]",
@@ -218,11 +220,10 @@ export default function ChatPanel() {
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[85%] px-4 py-2.5 rounded-fl text-body-sm leading-relaxed ${
-                  msg.role === "user"
+                className={`max-w-[85%] px-4 py-2.5 rounded-fl text-body-sm leading-relaxed ${msg.role === "user"
                     ? "bg-azure text-snow rounded-br-md"
                     : "bg-fog text-ink rounded-bl-md"
-                }`}
+                  }`}
               >
                 {msg.role === "assistant" && <TierBadge tier={msg.tier} />}
                 {msg.image && (

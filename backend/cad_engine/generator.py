@@ -77,9 +77,32 @@ def deflection_for_tier(tier: str | None) -> tuple[float, float]:
 
 
 def _to_ocp_shape(shape: Any) -> Any:
+    """Unwrap a build123d shape to its underlying OCP ``TopoDS_Shape``.
+
+    Handles ``Part`` objects with children by building a Compound,
+    since bare Part.wrapped is not a valid single OCP shape.
+    """
     if hasattr(shape, "wrapped"):
         return shape.wrapped
+    # build123d Part with children: build a Compound from all solids
+    if hasattr(shape, "solids") and callable(shape.solids):
+        solids = shape.solids()
+        if solids:
+            return solids[0].wrapped if len(solids) == 1 else _make_compound(solids)
     return shape
+
+
+def _make_compound(solids: list) -> "TopoDS_Compound":
+    """Build an OCP ``TopoDS_Compound`` from a list of build123d solids."""
+    from OCP.TopoDS import TopoDS_Compound
+    from OCP.BRep import BRep_Builder
+
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for s in solids:
+        builder.Add(compound, s.wrapped)
+    return compound
 
 
 def _mesh_once(

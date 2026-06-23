@@ -375,6 +375,11 @@ NUNCA invertir el orden ni pasar un solo edge sin envolverlo en `[...]`.
 - Para plano en XY desplazado: `Plane.XY.offset(z)` o `Plane(origin=..., x_dir=..., z_dir=...)`
 - ERROR: `TypeError: Unexpected keyword arguments: y_dir`
 
+### max_fillet() y fillet() — los edges van en LISTA [ ]
+- `max_fillet()` espera una LISTA de edges, no un edge solo: `max_fillet([edge])` NO `max_fillet(edge)`
+- `fillet(radius, [edges])` — siempre envolvé los edges en `[...]`
+- ERROR: `TypeError: 'Edge' object is not iterable` → pasaste un Edge solo, necesitás lista
+
 ### Vertex — NO tiene .pos(), usa .to_tuple() o .X/.Y/.Z
 - `Vertex` no tiene método `.pos()`. Usa `v.to_tuple()` → `(x, y, z)` o `v.X`, `v.Y`, `v.Z`.
 - ERROR: `AttributeError: 'Vertex' object has no attribute 'pos'`
