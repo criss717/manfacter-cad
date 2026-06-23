@@ -836,7 +836,7 @@ def _restore_code_in_result(result: str) -> str:
 
 
 async def _run_chat(
-    websocket, messages: list, model: str, api_key: str, base_url: str, temperature: float = 0.2
+    websocket, messages: list, model: str, api_key: str, base_url: str, temperature: float = 0.3
 ) -> None:
     """OpenAI-compatible chat/completions WITH streaming (minimax, glm, kimi, deepseek, GO)."""
     client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=300.0, max_retries=2)
@@ -1187,7 +1187,7 @@ async def _analyze_image(image_data: str, user_text: str) -> str | None:
     payload = {
         "model": analyzer_model,
         "messages": messages,
-        "temperature": 0.1,
+        "temperature": 0.3,
         "max_tokens": 8192,
     }
 
@@ -1409,13 +1409,15 @@ async def _analyze_image_with_fallback(image_data: str, user_text: str) -> str |
 
     # 3. kimi-go (kimi-k2.6)
     print("[OPENAI] IMAGE FALLBACK: nvidia failed, trying kimi-go...")
-    result = await _analyze_image_chat_fallback(image_data, user_text, "kimi-go")
+    result = await _analyze_image_chat_fallback(image_data, user_text, "kimi-go-2.7")
+    if result:
+        return result
+    # 4. minimax-m3-go
+    print("[OPENAI] IMAGE FALLBACK: kimi-go failed, trying minimax-m3-go...")
+    result = await _analyze_image_anthropic(image_data, user_text)
     if result:
         return result
 
-    # 4. minimax-m3-go
-    print("[OPENAI] IMAGE FALLBACK: kimi-go failed, trying minimax-m3-go...")
-    return await _analyze_image_anthropic(image_data, user_text)
 
 
 async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider: str) -> str | None:
@@ -1443,7 +1445,7 @@ async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider
         ]},
     ]
 
-    temp = float(config.get("temperature", 0.2))
+    temp = float(config.get("temperature", 0.3))
     payload = {
         "model": model,
         "messages": messages,
@@ -1473,8 +1475,8 @@ async def _analyze_image_chat_fallback(image_data: str, user_text: str, provider
             return None
         msg = choices[0].get("message", {})
         content = msg.get("content")
-        # kimi + NVIDIA models put real analysis in `reasoning` (thinking models)
-        reasoning = msg.get("reasoning")
+        # kimi-k2.6 uses `reasoning`, kimi-k2.7 uses `reasoning_content` (thinking models)
+        reasoning = msg.get("reasoning") or msg.get("reasoning_content")
         if reasoning and (content is None or (isinstance(reasoning, str) and isinstance(content, str) and len(reasoning) > len(content))):
             content = reasoning
         if isinstance(content, list):
@@ -1513,7 +1515,7 @@ async def _analyze_cad_with_fallback(
 
     # 2. kimi-go (kimi-k2.6, has vision, temp=0.2)
     result = await _analyze_cad_snapshots(
-        png_paths, cad_facts, user_request, opencode_key, provider="kimi-go"
+        png_paths, cad_facts, user_request, opencode_key, provider="kimi-go-2.7"
     )
     if result:
         return result
@@ -1576,7 +1578,7 @@ async def _analyze_cad_snapshots(
 
     analyzer_model = analyzer_config["model"]
     analyzer_base = analyzer_config.get("base_url", ZEN_BASE)
-    temperature = float(analyzer_config.get("temperature", 0.2))
+    temperature = float(analyzer_config.get("temperature", 0.1))
     endpoint = f"{analyzer_base}/chat/completions"
 
     # Build image parts for all 5 views
@@ -1624,8 +1626,8 @@ async def _analyze_cad_snapshots(
             data = resp.json()
         msg = data["choices"][0].get("message", {})
         description = msg.get("content")
-        # kimi + NVIDIA models put analysis in `reasoning`
-        reasoning = msg.get("reasoning")
+        # kimi-k2.6 uses `reasoning`, kimi-k2.7 uses `reasoning_content`
+        reasoning = msg.get("reasoning") or msg.get("reasoning_content")
         if reasoning and (description is None or (isinstance(reasoning, str) and isinstance(description, str) and len(reasoning) > len(description))):
             description = reasoning
         print(f"[OPENAI] CAD SNAPSHOT ANALYSIS: {str(description)[:120] if description else '(empty)'}...")
@@ -1930,7 +1932,7 @@ async def process_user_message(
     _last_user_request[session_id] = user_text
 
     base_url = config.get("base_url", ZEN_BASE)
-    temperature = float(config.get("temperature", 0.2))
+    temperature = float(config.get("temperature", 0.3))
     if api == "messages":
         await _run_messages(websocket, messages, model, api_key, base_url)
     elif api == "gemini":
